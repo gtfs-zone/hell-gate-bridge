@@ -1,5 +1,5 @@
 # Changes here will be overwritten by Copier; do not edit manually.
-_commit: '5674250'
+_commit: 0164ffb
 _src_path: /home/maxtkc/Documents/bare-chassis/
 description: Sidecar worker that polls the Amtrak live tracker and publishes MQTT
     position messages
