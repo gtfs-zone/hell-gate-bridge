@@ -156,7 +156,7 @@ publisher only reads the subset it needs.
 
 ### Tasks
 
-- [ ] Create `src/hell_gate_bridge/publisher.py`:
+- [x] Create `src/hell_gate_bridge/publisher.py`:
   - `heading_to_degrees(heading: str) -> int | None` — converts `"NE"` → `45` etc.
   - `publish_positions(client: aiomqtt.Client, trains: list[Train])` — for each
     train, builds OwnTracks payload and publishes to `owntracks/amtrak/{train_num}`
