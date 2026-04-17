@@ -105,14 +105,14 @@ publisher only reads the subset it needs.
 
 ### Tasks
 
-- [ ] Add runtime dependencies to `pyproject.toml`:
+- [x] Add runtime dependencies to `pyproject.toml`:
   - `httpx` — async HTTP
   - `aiomqtt` — async MQTT (already used by vehicle-poser, same pattern)
   - `cryptography` — AES-128-CBC (PBKDF2 via stdlib `hashlib`)
-- [ ] Run `uv sync` to update lockfile
-- [ ] Create `src/hell_gate_bridge/config.py` — read all env vars, parse
+- [x] Run `uv sync` to update lockfile
+- [x] Create `src/hell_gate_bridge/config.py` — read all env vars, parse
   `MQTT_BROKER` with `urllib.parse.urlparse`, expose typed config object
-- [ ] Create `src/hell_gate_bridge/main.py` — entry point stub
+- [x] Create `src/hell_gate_bridge/main.py` — entry point stub
 
 ### Gotchas
 
@@ -125,14 +125,14 @@ publisher only reads the subset it needs.
 
 ### Tasks
 
-- [ ] Create `src/hell_gate_bridge/models.py` — dataclasses for `StopTime`,
+- [x] Create `src/hell_gate_bridge/models.py` — dataclasses for `StopTime`,
   `TrainStop`, and `Train`:
   ```
   StopTime: scheduled, estimated, actual (all datetime | None)
   TrainStop: station_code, bus, timezone, status, arrival, departure (each StopTime)
   Train: train_num, route, heading, lat, lon, speed_mph, amtrak_id, timestamp, stops: list[TrainStop]
   ```
-- [ ] Create `src/hell_gate_bridge/amtrak.py`:
+- [x] Create `src/hell_gate_bridge/amtrak.py`:
   - `_get_crypto_initializers(client)` — fetches both RoutesList endpoints,
     caches result module-level (crypto params don't change between polls)
   - `_decrypt(data_b64, password, salt, iv) -> str` — PBKDF2 key derivation +
