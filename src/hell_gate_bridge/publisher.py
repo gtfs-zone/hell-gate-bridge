@@ -1,6 +1,7 @@
 import json
 
 import aiomqtt
+from hell_gate_bridge.config import Config
 
 from .models import Train
 
@@ -22,7 +23,7 @@ def heading_to_degrees(heading: str) -> int | None:
     return _HEADING_DEGREES.get(heading.upper())
 
 
-async def publish_positions(client: aiomqtt.Client, trains: list[Train]) -> None:
+async def publish_positions(config: Config, client: aiomqtt.Client, trains: list[Train]) -> None:
     for train in trains:
         payload = {
             "_type": "location",
@@ -36,6 +37,6 @@ async def publish_positions(client: aiomqtt.Client, trains: list[Train]) -> None
         payload["vel"] = round(train.speed_mph * _MPH_TO_KPH)
 
         await client.publish(
-            f"owntracks/amtrak/{train.train_num}",
+            f"owntracks/{config.mqtt_username}/{train.train_num}",
             json.dumps(payload),
         )

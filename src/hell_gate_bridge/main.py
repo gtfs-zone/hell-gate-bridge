@@ -30,7 +30,7 @@ async def _poll_loop(config: Config) -> None:
                                 trains = [
                                     t for t in trains if t.route in config.route_filter
                                 ]
-                            await publish_positions(mqtt, trains)
+                            await publish_positions(config, mqtt, trains)
                             log.info("published %d trains", len(trains))
                         except Exception as exc:
                             log.error("fetch error: %s", exc)
