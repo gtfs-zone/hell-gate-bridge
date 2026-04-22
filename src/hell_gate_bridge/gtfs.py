@@ -1,0 +1,105 @@
+from __future__ import annotations
+
+import csv
+import io
+import zipfile
+from dataclasses import dataclass
+from datetime import UTC, date, datetime, timedelta
+from pathlib import Path
+
+
+def _parse_gtfs_time(s: str) -> int:
+    h, m, sec = s.split(":")
+    return int(h) * 3600 + int(m) * 60 + int(sec)
+
+
+@dataclass
+class _CalendarRow:
+    days_bitmask: int  # bit i = weekday i (0=Mon…6=Sun), matching date.weekday()
+    start_date: int  # YYYYMMDD
+    end_date: int  # YYYYMMDD
+
+
+class GtfsResolver:
+    def __init__(self, path: str | Path) -> None:
+        path = Path(path)
+        self._trips: dict[str, list[tuple[str, str]]] = {}
+        self._calendar: dict[str, _CalendarRow] = {}
+        self._windows: dict[str, tuple[int, int]] = {}
+        self._load(path)
+
+    def _read_file(self, path: Path, name: str) -> str:
+        if path.suffix == ".zip":
+            with zipfile.ZipFile(path) as zf:
+                return zf.read(name).decode("utf-8")
+        return (path / name).read_text(encoding="utf-8")
+
+    def _load(self, path: Path) -> None:
+        day_names = [
+            "monday",
+            "tuesday",
+            "wednesday",
+            "thursday",
+            "friday",
+            "saturday",
+            "sunday",
+        ]
+
+        for row in csv.DictReader(io.StringIO(self._read_file(path, "calendar.txt"))):
+            bitmask = sum((1 << i) for i, d in enumerate(day_names) if row[d] == "1")
+            self._calendar[row["service_id"]] = _CalendarRow(
+                days_bitmask=bitmask,
+                start_date=int(row["start_date"]),
+                end_date=int(row["end_date"]),
+            )
+
+        for row in csv.DictReader(io.StringIO(self._read_file(path, "trips.txt"))):
+            train_num = row["trip_short_name"]
+            self._trips.setdefault(train_num, []).append(
+                (row["trip_id"], row["service_id"])
+            )
+
+        first_dep: dict[str, int] = {}
+        last_arr: dict[str, int] = {}
+        for row in csv.DictReader(io.StringIO(self._read_file(path, "stop_times.txt"))):
+            tid = row["trip_id"]
+            dep = _parse_gtfs_time(row["departure_time"])
+            arr = _parse_gtfs_time(row["arrival_time"])
+            if tid not in first_dep or dep < first_dep[tid]:
+                first_dep[tid] = dep
+            if tid not in last_arr or arr > last_arr[tid]:
+                last_arr[tid] = arr
+
+        for tid in first_dep:
+            self._windows[tid] = (first_dep[tid], last_arr[tid])
+
+    def _is_active(self, service_id: str, d: date) -> bool:
+        cal = self._calendar.get(service_id)
+        if cal is None:
+            return False
+        date_int = int(d.strftime("%Y%m%d"))
+        if not (cal.start_date <= date_int <= cal.end_date):
+            return False
+        return bool(cal.days_bitmask & (1 << d.weekday()))
+
+    def resolve(self, train_num: str, now: datetime) -> str | None:
+        candidates = self._trips.get(train_num)
+        if not candidates:
+            return None
+
+        for lookback in range(5):
+            d = now.date() - timedelta(days=lookback)
+            matches: list[str] = []
+            for trip_id, service_id in candidates:
+                if not self._is_active(service_id, d):
+                    continue
+                first_dep, last_arr = self._windows.get(trip_id, (0, 0))
+                service_midnight = datetime(d.year, d.month, d.day, tzinfo=UTC)
+                window_start = service_midnight + timedelta(seconds=first_dep)
+                window_end = service_midnight + timedelta(seconds=last_arr)
+                if window_start <= now <= window_end:
+                    matches.append(trip_id)
+            if matches:
+                return min(matches)
+
+        return None
