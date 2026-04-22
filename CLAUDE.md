@@ -29,6 +29,7 @@ pre-commit install   # install git hooks
 |---|---|
 | `REDIS_URL` | Redis connection string, e.g. `redis://localhost:6379/0` |
 | `MQTT_BROKER` | MQTT broker URL, e.g. `tcp://localhost:1883` |
+| `GTFS_PATH` | Path to GTFS directory or `.zip` file for trip resolution |
 
 
 ## Rules
@@ -75,4 +76,4 @@ This project uses an offline-first workflow. Claude reads/writes `CURRENT_PLAN.m
 
 ### Creating a PR (triggered by "make a PR closing #N")
 
-1. Use `mcp__forgejo__create_pull_request` with `owner: "gtfs.zone"`, `repo: "hell-gate-bridge"`, current branch as `head`, `main` as `base`, issue title as PR title, `Closes #N` as body
+1. Use `mcp__forgejo__create_pull_request` with `owner: "gtfs.zone"`, `repo: "deploy-gtfs-rt"`, current branch as `head`, `main` as `base`, issue title as PR title, `Closes #N` as body

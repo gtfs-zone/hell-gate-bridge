@@ -6,13 +6,14 @@ import httpx
 
 from hell_gate_bridge.amtrak import fetch_trains
 from hell_gate_bridge.config import Config
+from hell_gate_bridge.gtfs import GtfsResolver
 from hell_gate_bridge.publisher import publish_positions
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger(__name__)
 
 
-async def _poll_loop(config: Config) -> None:
+async def _poll_loop(config: Config, resolver: GtfsResolver) -> None:
     async with httpx.AsyncClient() as http:
         while True:
             reconnect_interval = 1
@@ -30,7 +31,7 @@ async def _poll_loop(config: Config) -> None:
                                 trains = [
                                     t for t in trains if t.route in config.route_filter
                                 ]
-                            await publish_positions(config, mqtt, trains)
+                            await publish_positions(config, mqtt, trains, resolver)
                             log.info("published %d trains", len(trains))
                         except Exception as exc:
                             log.error("fetch error: %s", exc)
@@ -45,8 +46,9 @@ async def _poll_loop(config: Config) -> None:
 
 async def main() -> None:
     config = Config()
+    resolver = GtfsResolver(config.gtfs_path)
     try:
-        await _poll_loop(config)
+        await _poll_loop(config, resolver)
     except asyncio.CancelledError:
         log.info("shutting down")
 
