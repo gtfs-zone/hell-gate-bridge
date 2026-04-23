@@ -2,7 +2,7 @@ import hashlib
 import json
 import re
 from base64 import b64decode
-from datetime import datetime
+from datetime import UTC, datetime
 from zoneinfo import ZoneInfo
 
 import httpx
@@ -143,11 +143,11 @@ def _parse_feature(feature: dict) -> Train | None:
     last_val = props.get("LastValTS")
     if last_val:
         try:
-            timestamp = _parse_date(last_val, "E") or datetime.utcnow()
+            timestamp = _parse_date(last_val, "E") or datetime.now(UTC)
         except ValueError:
-            timestamp = datetime.utcnow()
+            timestamp = datetime.now(UTC)
     else:
-        timestamp = datetime.utcnow()
+        timestamp = datetime.now(UTC)
 
     return Train(
         train_num=str(props.get("TrainNum", "")),
