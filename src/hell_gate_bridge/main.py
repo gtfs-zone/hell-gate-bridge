@@ -7,7 +7,7 @@ import httpx
 from hell_gate_bridge.amtrak import fetch_trains
 from hell_gate_bridge.config import Config
 from hell_gate_bridge.gtfs import GtfsResolver, fetch_gtfs
-from hell_gate_bridge.publisher import publish_positions
+from hell_gate_bridge.publisher import publish_positions, publish_trip_updates
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger(__name__)
@@ -21,6 +21,7 @@ async def _poll_loop(config: Config, resolver: GtfsResolver) -> None:
                 if config.route_filter:
                     trains = [t for t in trains if t.route in config.route_filter]
                 await publish_positions(config, http, trains, resolver)
+                await publish_trip_updates(config, http, trains, resolver)
                 log.info("published %d trains", len(trains))
             except Exception as exc:
                 log.error("fetch error: %s", exc)

@@ -2,10 +2,9 @@
 name = "hell-gate-bridge"
 version = "0.1.0"
 requires-python = ">=3.13"
-description = "Sidecar worker that polls the Amtrak live tracker and publishes MQTT position messages"
+description = "Sidecar worker that polls the Amtrak live tracker and POSTs positions + trip-updates to cafe-car ingest"
 dependencies = [
     "httpx>=0.28",
-    "aiomqtt>=2.3",
     "cryptography>=44",
 ]
 
