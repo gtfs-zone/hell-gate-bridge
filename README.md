@@ -1,6 +1,8 @@
 # Hell Gate Bridge
 
-Sidecar worker that polls the Amtrak live tracker and publishes MQTT position messages
+Sidecar worker that polls an upstream live tracker (Amtrak or buswhere/Columbia
+County), resolves each vehicle to a GTFS trip, and POSTs positions + per-stop
+trip-updates to the cafe-car ingest API. Select the source with `SOURCE`.
 
 ## Overview
 
