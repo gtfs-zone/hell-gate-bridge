@@ -1,4 +1,5 @@
 import logging
+from datetime import datetime
 
 import httpx
 
@@ -8,6 +9,15 @@ from hell_gate_bridge.gtfs import GtfsResolver
 from .models import StopTime, Train
 
 log = logging.getLogger(__name__)
+
+
+def _origin_scheduled(train: Train) -> datetime | None:
+    """Scheduled datetime of the train's origin — its stops are origin-first."""
+    for stop in train.stops:
+        dt = stop.departure.scheduled or stop.arrival.scheduled
+        if dt is not None:
+            return dt
+    return None
 
 _HEADING_DEGREES: dict[str, int] = {
     "N": 0,
@@ -46,13 +56,17 @@ async def publish_positions(
     published = 0
     unresolved: list[str] = []
     for train in trains:
-        trip_id = resolver.resolve(train.train_num, train.timestamp)
-        if trip_id is None:
+        resolved = resolver.resolve(
+            train.train_num, train.timestamp, origin=_origin_scheduled(train)
+        )
+        if resolved is None:
             unresolved.append(train.train_num)
             continue
+        trip_id, start_date = resolved
         body: dict[str, object] = {
             "vehicle_id": config.vehicle_id,
             "trip_id": trip_id,
+            "start_date": start_date,
             "lat": train.lat,
             "lon": train.lon,
             "speed": round(train.speed_mph * _MPH_TO_MS, 4),
@@ -61,6 +75,9 @@ async def publish_positions(
         bearing = heading_to_degrees(train.heading)
         if bearing is not None:
             body["bearing"] = bearing
+        route_id = resolver.route_for(trip_id)
+        if route_id is not None:
+            body["route_id"] = route_id
 
         try:
             resp = await http.post(url, json=body, headers=headers)
@@ -151,14 +168,18 @@ async def publish_trip_updates(
 
     published = 0
     for train in trains:
-        trip_id = resolver.resolve(train.train_num, train.timestamp)
-        if trip_id is None:
+        resolved = resolver.resolve(
+            train.train_num, train.timestamp, origin=_origin_scheduled(train)
+        )
+        if resolved is None:
             continue  # already logged by publish_positions
+        trip_id, start_date = resolved
         updates = _build_stop_time_updates(train, resolver.stop_sequences(trip_id))
         if not updates:
             continue
         body = {
             "trip_id": trip_id,
+            "start_date": start_date,
             "vehicle_id": config.vehicle_id,
             "timestamp": int(train.timestamp.timestamp()),
             "stop_time_updates": updates,

@@ -53,6 +53,9 @@ class GtfsResolver:
         self._trips: dict[str, list[tuple[str, str]]] = {}
         self._calendar: dict[str, _CalendarRow] = {}
         self._windows: dict[str, tuple[int, int]] = {}
+        # trip_id -> GTFS route_id, so the feed can carry the static route_id
+        # (which joins to routes.txt) rather than Amtrak's display route name.
+        self._trip_routes: dict[str, str] = {}
         # trip_id -> {stop_id: stop_sequence}. Amtrak GTFS stop_id == station code
         # (CHI, NYP, …), so this doubles as the station-code validity check when
         # building trip-updates.
@@ -103,6 +106,8 @@ class GtfsResolver:
             self._trips.setdefault(train_num, []).append(
                 (row["trip_id"], row["service_id"])
             )
+            if row.get("route_id"):
+                self._trip_routes[row["trip_id"]] = row["route_id"]
 
         first_dep: dict[str, int] = {}
         last_arr: dict[str, int] = {}
@@ -134,10 +139,36 @@ class GtfsResolver:
         """{stop_id: stop_sequence} for a resolved trip; empty if unknown."""
         return self._trip_stops.get(trip_id, {})
 
-    def resolve(self, train_num: str, now: datetime) -> str | None:
+    def route_for(self, trip_id: str) -> str | None:
+        """GTFS route_id for a resolved trip; None if unknown."""
+        return self._trip_routes.get(trip_id)
+
+    def resolve(
+        self, train_num: str, now: datetime, origin: datetime | None = None
+    ) -> tuple[str, str] | None:
+        """Resolve to (trip_id, start_date) — the GTFS-RT trip instance.
+
+        Amtrak models a >24h daily train as one trip_id running every day, so
+        several instances of that trip_id are en route at once. start_date
+        (YYYYMMDD, the service day the train departed its origin) is what tells
+        them apart, both here and in the Redis key downstream. Returns None when
+        the train number isn't in the GTFS or no instance is currently running.
+        """
         candidates = self._trips.get(train_num)
         if not candidates:
             return None
+
+        # The service day the train actually departed its origin on is the most
+        # reliable discriminator, so match that first when we have it.
+        if origin is not None:
+            service_date = origin.astimezone(self._tz).date()
+            day_matches = [
+                trip_id
+                for trip_id, service_id in candidates
+                if self._is_active(service_id, service_date)
+            ]
+            if day_matches:
+                return min(day_matches), service_date.strftime("%Y%m%d")
 
         local_today = now.astimezone(self._tz).date()
         for lookback in range(5):
@@ -157,6 +188,6 @@ class GtfsResolver:
                 if window_start <= now <= window_end:
                     matches.append(trip_id)
             if matches:
-                return min(matches)
+                return min(matches), d.strftime("%Y%m%d")
 
         return None
