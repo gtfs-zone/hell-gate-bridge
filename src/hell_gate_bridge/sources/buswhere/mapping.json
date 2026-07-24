@@ -1,0 +1,43 @@
+{
+  "routes": {
+    "shopping_shuttle": "Shopping",
+    "hudson__albany_c__am": "Albany-Commuter",
+    "chatham": "Chatham-Hudson"
+  },
+  "stops": {
+    "151097175": "STOP-e17c74d0-75bd-4c78-b928-d78a94e172a8",
+    "151097177": "STOP-e50320c6-1a50-4a7c-88a2-3221fd0d450e",
+    "151097226": "STOP-71fb5365-5e0a-4f14-9d08-14e17e9f49dd",
+    "151097286": "STOP-22be1bc8-0e59-4687-9517-bc2fa0c252a0",
+    "151097287": "STOP-0c5b445a-d205-4541-8ee0-e6d7a68fa15f",
+    "151097363": "STOP-48ef6ea8-1f58-46d6-a6c9-2f40608fd7b5",
+    "151097456": "STOP-3acd83d2-6783-4cfd-9e9b-b47abc21373e",
+    "151097457": "STOP-c8a08072-ccce-493a-a7fc-d22bd4480e8a",
+    "151097584": "STOP-7e028e32-7c19-4aeb-a12b-eed8faaf02e0",
+    "151098065": "STOP-7cd6a5bf-7f43-4ce7-9347-23714294f9fb",
+    "151098231": "STOP-b57dfd9a-3fff-4039-97f6-a7282960a6de",
+    "151098772": "STOP-00c4dd04-b9c1-4c7d-8f42-72e96c1d1f6e",
+    "151098773": "STOP-d894d2df-62e3-4b4a-9ac1-808af6ab308b",
+    "151098774": "STOP-78e37cba-a18a-402a-b32f-32e639ef9dfc",
+    "151099037": "STOP-6d7b292e-d97e-49c3-a39c-0d68ded2177a",
+    "151099298": "STOP-b9f37c98-0281-4ea0-945d-114f348f692d",
+    "151099879": "STOP-e471e5e5-2887-452d-ad1e-59398e71b660",
+    "151230551": "STOP-b1f73f1c-3825-4281-86cd-790b446811c8",
+    "151230553": "STOP-906f1a1c-6245-490f-a3a0-de4c762bf5c2",
+    "151230554": "STOP-40c220c3-6f14-4de6-9375-c6c883f11404",
+    "151230590": "STOP-65eb9629-4021-4885-95d4-3d0c1c078fe2",
+    "151230591": "STOP-56d8841a-2fb8-4fce-9a66-1c7bceb789d0",
+    "151230669": "STOP-9ff11336-fac8-4f16-8a24-1ecddcc1f6a3",
+    "151230779": "STOP-00c4dd04-b9c1-4c7d-8f42-72e96c1d1f6e",
+    "151230780": "STOP-3acd83d2-6783-4cfd-9e9b-b47abc21373e",
+    "151231103": "STOP-c062d2c9-ad18-4d95-9d11-6ade2584e25d",
+    "151231104": "STOP-0c5b445a-d205-4541-8ee0-e6d7a68fa15f",
+    "151231440": "STOP-48ef6ea8-1f58-46d6-a6c9-2f40608fd7b5",
+    "151231441": "STOP-7cd6a5bf-7f43-4ce7-9347-23714294f9fb",
+    "151231442": "STOP-d894d2df-62e3-4b4a-9ac1-808af6ab308b",
+    "151232225": "STOP-78e37cba-a18a-402a-b32f-32e639ef9dfc",
+    "151232635": "STOP-9ff11336-fac8-4f16-8a24-1ecddcc1f6a3",
+    "151233222": "STOP-56d8841a-2fb8-4fce-9a66-1c7bceb789d0",
+    "151233842": "STOP-65eb9629-4021-4885-95d4-3d0c1c078fe2"
+  }
+}
