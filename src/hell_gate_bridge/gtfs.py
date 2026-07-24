@@ -51,7 +51,13 @@ class GtfsResolver:
     def __init__(self, path: str | Path) -> None:
         path = Path(path)
         self._trips: dict[str, list[tuple[str, str]]] = {}
+        # trip_id -> service_id, and route_id -> [trip_id], for resolving a
+        # vehicle by route (buswhere) rather than by trip_short_name (Amtrak).
+        self._trip_service: dict[str, str] = {}
+        self._trips_by_route: dict[str, list[str]] = {}
         self._calendar: dict[str, _CalendarRow] = {}
+        # service_id -> {YYYYMMDD: exception_type} (1=added, 2=removed).
+        self._calendar_exceptions: dict[str, dict[int, int]] = {}
         self._windows: dict[str, tuple[int, int]] = {}
         # trip_id -> GTFS route_id, so the feed can carry the static route_id
         # (which joins to routes.txt) rather than Amtrak's display route name.
@@ -60,6 +66,9 @@ class GtfsResolver:
         # (CHI, NYP, …), so this doubles as the station-code validity check when
         # building trip-updates.
         self._trip_stops: dict[str, dict[str, int]] = {}
+        # trip_id -> {stop_id: (arrival_secs, departure_secs)}, agency-local
+        # seconds-since-service-midnight, for computing delays against schedule.
+        self._trip_stop_times: dict[str, dict[str, tuple[int, int]]] = {}
         # stop_times.txt values are agency-local, so the service day must be
         # anchored in the agency's zone — not UTC.
         self._tz: ZoneInfo = ZoneInfo("America/New_York")
@@ -101,13 +110,28 @@ class GtfsResolver:
                 end_date=int(row["end_date"]),
             )
 
+        # calendar_dates.txt is optional (Amtrak omits it; the Columbia County
+        # feed uses it for holiday exceptions), so tolerate its absence.
+        try:
+            for row in csv.DictReader(
+                io.StringIO(self._read_file(path, "calendar_dates.txt"))
+            ):
+                self._calendar_exceptions.setdefault(row["service_id"], {})[
+                    int(row["date"])
+                ] = int(row["exception_type"])
+        except (KeyError, OSError, ValueError) as exc:
+            log.debug("no calendar_dates.txt (%s)", exc)
+
         for row in csv.DictReader(io.StringIO(self._read_file(path, "trips.txt"))):
-            train_num = row["trip_short_name"]
-            self._trips.setdefault(train_num, []).append(
-                (row["trip_id"], row["service_id"])
+            trip_id = row["trip_id"]
+            service_id = row["service_id"]
+            self._trips.setdefault(row["trip_short_name"], []).append(
+                (trip_id, service_id)
             )
+            self._trip_service[trip_id] = service_id
             if row.get("route_id"):
-                self._trip_routes[row["trip_id"]] = row["route_id"]
+                self._trip_routes[trip_id] = row["route_id"]
+                self._trips_by_route.setdefault(row["route_id"], []).append(trip_id)
 
         first_dep: dict[str, int] = {}
         last_arr: dict[str, int] = {}
@@ -122,18 +146,38 @@ class GtfsResolver:
             self._trip_stops.setdefault(tid, {})[row["stop_id"]] = int(
                 row["stop_sequence"]
             )
+            self._trip_stop_times.setdefault(tid, {})[row["stop_id"]] = (arr, dep)
 
         for tid in first_dep:
             self._windows[tid] = (first_dep[tid], last_arr[tid])
 
     def _is_active(self, service_id: str, d: date) -> bool:
+        date_int = int(d.strftime("%Y%m%d"))
+        # calendar_dates exceptions override calendar.txt: type 1 adds service on
+        # a date, type 2 removes it (holidays, one-offs).
+        exc = self._calendar_exceptions.get(service_id, {}).get(date_int)
+        if exc is not None:
+            return exc == 1
         cal = self._calendar.get(service_id)
         if cal is None:
             return False
-        date_int = int(d.strftime("%Y%m%d"))
         if not (cal.start_date <= date_int <= cal.end_date):
             return False
         return bool(cal.days_bitmask & (1 << d.weekday()))
+
+    def _service_midnight(self, d: date) -> datetime:
+        """Service-day midnight in the agency zone (DST-honest: noon minus 12h).
+
+        Keeping the anchor at noon-minus-12h means DST-transition days stay an
+        honest 23 or 25 hours long.
+        """
+        return datetime(d.year, d.month, d.day, 12, tzinfo=self._tz) - timedelta(
+            hours=12
+        )
+
+    @property
+    def timezone(self) -> ZoneInfo:
+        return self._tz
 
     def stop_sequences(self, trip_id: str) -> dict[str, int]:
         """{stop_id: stop_sequence} for a resolved trip; empty if unknown."""
@@ -142,6 +186,66 @@ class GtfsResolver:
     def route_for(self, trip_id: str) -> str | None:
         """GTFS route_id for a resolved trip; None if unknown."""
         return self._trip_routes.get(trip_id)
+
+    def scheduled_arrival(
+        self, trip_id: str, stop_id: str, start_date: str
+    ) -> int | None:
+        """Absolute epoch of a stop's scheduled arrival on `start_date` (YYYYMMDD).
+
+        None if the trip or stop is unknown. Used to compute delay from an
+        absolute predicted arrival.
+        """
+        times = self._trip_stop_times.get(trip_id, {}).get(stop_id)
+        if times is None:
+            return None
+        arr_secs, _ = times
+        d = date(int(start_date[:4]), int(start_date[4:6]), int(start_date[6:8]))
+        arrival = self._service_midnight(d) + timedelta(seconds=arr_secs)
+        return int(arrival.timestamp())
+
+    def resolve_by_route(self, route_id: str, now: datetime) -> tuple[str, str] | None:
+        """Resolve the trip on `route_id` whose scheduled window contains `now`.
+
+        For providers that report a route but not a trip (buswhere): among trips
+        on the route whose service is active, pick the one whose
+        [first_dep, last_arr] window contains `now`. Trips on these routes run
+        back-to-back, so at most one is running — at a shared boundary second we
+        prefer the just-starting trip (latest window_start). Returns
+        (trip_id, start_date) or None when nothing is scheduled to be running.
+        """
+        trip_ids = self._trips_by_route.get(route_id)
+        if not trip_ids:
+            return None
+
+        local_today = now.astimezone(self._tz).date()
+        best: tuple[datetime, str, str] | None = None  # (window_start, trip, sdate)
+        # A run can start the previous service day and cross midnight, so look
+        # back one day as well as today.
+        for lookback in range(2):
+            d = local_today - timedelta(days=lookback)
+            service_midnight = self._service_midnight(d)
+            start_date = d.strftime("%Y%m%d")
+            for trip_id in trip_ids:
+                service_id = self._trip_service.get(trip_id)
+                if service_id is None or not self._is_active(service_id, d):
+                    continue
+                first_dep, last_arr = self._windows.get(trip_id, (0, 0))
+                window_start = service_midnight + timedelta(seconds=first_dep)
+                window_end = service_midnight + timedelta(seconds=last_arr)
+                if not (window_start <= now <= window_end):
+                    continue
+                # Prefer the most recently started trip; break exact ties on the
+                # boundary second deterministically by trip_id.
+                key = (window_start, trip_id, start_date)
+                if (
+                    best is None
+                    or key[0] > best[0]
+                    or (key[0] == best[0] and trip_id < best[1])
+                ):
+                    best = key
+        if best is None:
+            return None
+        return best[1], best[2]
 
     def resolve(
         self, train_num: str, now: datetime, origin: datetime | None = None
@@ -178,11 +282,7 @@ class GtfsResolver:
                 if not self._is_active(service_id, d):
                     continue
                 first_dep, last_arr = self._windows.get(trip_id, (0, 0))
-                # GTFS defines the service day as noon minus 12h, which keeps
-                # DST-transition days an honest 23 or 25 hours long.
-                service_midnight = datetime(
-                    d.year, d.month, d.day, 12, tzinfo=self._tz
-                ) - timedelta(hours=12)
+                service_midnight = self._service_midnight(d)
                 window_start = service_midnight + timedelta(seconds=first_dep)
                 window_end = service_midnight + timedelta(seconds=last_arr)
                 if window_start <= now <= window_end:
