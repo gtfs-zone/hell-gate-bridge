@@ -18,8 +18,8 @@ class Config:
         # be explicit rather than inheriting a default that silently times out.
         self.http_timeout: float = float(os.environ.get("HTTP_TIMEOUT", "20"))
         # cafe-car ingest seam (positions + trip-updates over HTTP). vehicle_id
-        # must match the feed's Driver.username so cafe-car's
-        # `vehicle:{username}:*` scan finds it.
+        # must match a feed's Tracker.id (the secret device id) so cafe-car's
+        # `vehicle:{tracker_id}:*` scan finds it and labels it by the nickname.
         self.ingest_url: str | None = os.environ.get("CAFE_CAR_INGEST_URL")
         self.ingest_token: str | None = os.environ.get("INGEST_API_TOKEN")
         self.vehicle_id: str = os.environ.get("INGEST_VEHICLE_ID", "amtrakdriver")
