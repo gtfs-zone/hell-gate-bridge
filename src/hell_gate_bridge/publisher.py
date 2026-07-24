@@ -1,195 +1,104 @@
+"""Shared, provider-agnostic publish layer.
+
+Takes resolved `VehicleUpdate`s (from any `Source`) and POSTs them to cafe-car's
+ingest seam — positions to `/ingest/position`, per-stop predictions to
+`/ingest/trip-update`. Speed is metres/second and timestamps are epoch seconds,
+matching the `vehicle:*` contract cafe-car serves from.
+"""
+
+from __future__ import annotations
+
 import logging
-from datetime import datetime
+from typing import TYPE_CHECKING
 
 import httpx
 
-from hell_gate_bridge.config import Config
-from hell_gate_bridge.gtfs import GtfsResolver
-
-from .models import StopTime, Train
+if TYPE_CHECKING:
+    from hell_gate_bridge.config import Config
+    from hell_gate_bridge.sources.base import StopTimeUpdate, VehicleUpdate
 
 log = logging.getLogger(__name__)
 
 
-def _origin_scheduled(train: Train) -> datetime | None:
-    """Scheduled datetime of the train's origin — its stops are origin-first."""
-    for stop in train.stops:
-        dt = stop.departure.scheduled or stop.arrival.scheduled
-        if dt is not None:
-            return dt
-    return None
-
-_HEADING_DEGREES: dict[str, int] = {
-    "N": 0,
-    "NE": 45,
-    "E": 90,
-    "SE": 135,
-    "S": 180,
-    "SW": 225,
-    "W": 270,
-    "NW": 315,
-}
-
-_MPH_TO_MS = 0.44704
+def _position_body(config: Config, v: VehicleUpdate) -> dict[str, object]:
+    body: dict[str, object] = {
+        "vehicle_id": v.vehicle_id,
+        "trip_id": v.trip_id,
+    }
+    if v.start_date is not None:
+        body["start_date"] = v.start_date
+    body["lat"] = v.lat
+    body["lon"] = v.lon
+    if v.speed_mps is not None:
+        body["speed"] = v.speed_mps
+    body["timestamp"] = v.timestamp
+    if v.bearing is not None:
+        body["bearing"] = v.bearing
+    if v.route_id is not None:
+        body["route_id"] = v.route_id
+    return body
 
 
-def heading_to_degrees(heading: str) -> int | None:
-    return _HEADING_DEGREES.get(heading.upper())
+def _stop_time_update_body(u: StopTimeUpdate) -> dict[str, object]:
+    body: dict[str, object] = {}
+    if u.stop_id is not None:
+        body["stop_id"] = u.stop_id
+    if u.stop_sequence is not None:
+        body["stop_sequence"] = u.stop_sequence
+    if u.arrival_time is not None:
+        body["arrival_time"] = u.arrival_time
+    if u.arrival_delay is not None:
+        body["arrival_delay"] = u.arrival_delay
+    if u.departure_time is not None:
+        body["departure_time"] = u.departure_time
+    if u.departure_delay is not None:
+        body["departure_delay"] = u.departure_delay
+    return body
 
 
-async def publish_positions(
-    config: Config, http: httpx.AsyncClient, trains: list[Train], resolver: GtfsResolver
-) -> int:
-    """POST each resolvable train position to cafe-car's /ingest/position.
-
-    Writes the `vehicle:*` contract cafe-car serves from — speed in m/s, epoch
-    timestamp, bearing in degrees. Amtrak already knows its trip_id, so no
-    server-side resolution is needed. Returns the number published.
-    """
+async def publish(
+    config: Config, http: httpx.AsyncClient, updates: list[VehicleUpdate]
+) -> tuple[int, int]:
+    """POST positions + trip-updates. Returns (positions, trip_updates) counts."""
     if not config.ingest_url:
-        log.error("CAFE_CAR_INGEST_URL not set — cannot publish positions")
-        return 0
+        log.error("CAFE_CAR_INGEST_URL not set — cannot publish")
+        return 0, 0
 
-    url = f"{config.ingest_url.rstrip('/')}/ingest/position"
+    base = config.ingest_url.rstrip("/")
+    position_url = f"{base}/ingest/position"
+    trip_update_url = f"{base}/ingest/trip-update"
     headers = {"Authorization": f"Bearer {config.ingest_token}"}
 
-    published = 0
-    unresolved: list[str] = []
-    for train in trains:
-        resolved = resolver.resolve(
-            train.train_num, train.timestamp, origin=_origin_scheduled(train)
-        )
-        if resolved is None:
-            unresolved.append(train.train_num)
-            continue
-        trip_id, start_date = resolved
-        body: dict[str, object] = {
-            "vehicle_id": config.vehicle_id,
-            "trip_id": trip_id,
-            "start_date": start_date,
-            "lat": train.lat,
-            "lon": train.lon,
-            "speed": round(train.speed_mph * _MPH_TO_MS, 4),
-            "timestamp": int(train.timestamp.timestamp()),
-        }
-        bearing = heading_to_degrees(train.heading)
-        if bearing is not None:
-            body["bearing"] = bearing
-        route_id = resolver.route_for(trip_id)
-        if route_id is not None:
-            body["route_id"] = route_id
-
+    positions = 0
+    trip_updates = 0
+    for v in updates:
         try:
-            resp = await http.post(url, json=body, headers=headers)
+            resp = await http.post(
+                position_url, json=_position_body(config, v), headers=headers
+            )
             resp.raise_for_status()
-            published += 1
+            positions += 1
         except httpx.HTTPError as exc:
-            log.error("ingest POST failed for train %s: %r", train.train_num, exc)
-
-    if unresolved:
-        # One line for the batch — this used to be one WARNING per train, which
-        # buried everything else in the log.
-        log.warning(
-            "no trip_id for %d/%d trains (e.g. %s)",
-            len(unresolved),
-            len(trains),
-            ", ".join(unresolved[:10]),
-        )
-    return published
-
-
-def _best_epoch(st: StopTime) -> int | None:
-    """Actual time if the train has already passed the stop, else the estimate."""
-    dt = st.actual or st.estimated
-    return int(dt.timestamp()) if dt is not None else None
-
-
-def _delay_seconds(st: StopTime) -> int | None:
-    """Lateness against Amtrak's own scheduled time; positive means late.
-
-    Uses the same actual-then-estimated precedence as `_best_epoch`, so the delay
-    always describes the timestamp being published alongside it.
-    """
-    dt = st.actual or st.estimated
-    if dt is None or st.scheduled is None:
-        return None
-    return int((dt - st.scheduled).total_seconds())
-
-
-def _build_stop_time_updates(train: Train, stop_seqs: dict[str, int]) -> list[dict]:
-    """Amtrak's own per-stop predictions → GTFS-RT stop_time_update dicts.
-
-    Station codes not present in the resolved trip's GTFS stop list are skipped
-    (Amtrak occasionally reports stops the static feed doesn't carry).
-    """
-    updates: list[dict] = []
-    for stop in train.stops:
-        seq = stop_seqs.get(stop.station_code)
-        if seq is None:
+            log.error("position POST failed for %s: %r", v.trip_id, exc)
             continue
-        arrival = _best_epoch(stop.arrival)
-        departure = _best_epoch(stop.departure)
-        if arrival is None and departure is None:
-            continue  # scheduled-only stop carries no realtime information
-        update: dict[str, object] = {
-            "stop_id": stop.station_code,
-            "stop_sequence": seq,
-        }
-        # Publish the absolute prediction *and* the delay against schedule —
-        # GTFS-RT allows both in one StopTimeEvent, and consumers need the delay
-        # to show lateness without carrying the static schedule themselves.
-        if arrival is not None:
-            update["arrival_time"] = arrival
-            arrival_delay = _delay_seconds(stop.arrival)
-            if arrival_delay is not None:
-                update["arrival_delay"] = arrival_delay
-        if departure is not None:
-            update["departure_time"] = departure
-            departure_delay = _delay_seconds(stop.departure)
-            if departure_delay is not None:
-                update["departure_delay"] = departure_delay
-        updates.append(update)
-    return updates
 
-
-async def publish_trip_updates(
-    config: Config, http: httpx.AsyncClient, trains: list[Train], resolver: GtfsResolver
-) -> int:
-    """POST each train's Amtrak per-stop predictions to /ingest/trip-update.
-
-    Returns the number published.
-    """
-    if not config.ingest_url:
-        log.error("CAFE_CAR_INGEST_URL not set — cannot publish trip-updates")
-        return 0
-
-    url = f"{config.ingest_url.rstrip('/')}/ingest/trip-update"
-    headers = {"Authorization": f"Bearer {config.ingest_token}"}
-
-    published = 0
-    for train in trains:
-        resolved = resolver.resolve(
-            train.train_num, train.timestamp, origin=_origin_scheduled(train)
-        )
-        if resolved is None:
-            continue  # already logged by publish_positions
-        trip_id, start_date = resolved
-        updates = _build_stop_time_updates(train, resolver.stop_sequences(trip_id))
-        if not updates:
+        if not v.stop_time_updates:
             continue
         body = {
-            "trip_id": trip_id,
-            "start_date": start_date,
-            "vehicle_id": config.vehicle_id,
-            "timestamp": int(train.timestamp.timestamp()),
-            "stop_time_updates": updates,
+            "trip_id": v.trip_id,
+            "vehicle_id": v.vehicle_id,
+            "timestamp": v.timestamp,
+            "stop_time_updates": [
+                _stop_time_update_body(u) for u in v.stop_time_updates
+            ],
         }
+        if v.start_date is not None:
+            body["start_date"] = v.start_date
         try:
-            resp = await http.post(url, json=body, headers=headers)
+            resp = await http.post(trip_update_url, json=body, headers=headers)
             resp.raise_for_status()
-            published += 1
+            trip_updates += 1
         except httpx.HTTPError as exc:
-            log.error(
-                "trip-update POST failed for train %s: %r", train.train_num, exc
-            )
-    return published
+            log.error("trip-update POST failed for %s: %r", v.trip_id, exc)
+
+    return positions, trip_updates

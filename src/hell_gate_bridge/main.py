@@ -1,50 +1,57 @@
 import asyncio
 import logging
-from pathlib import Path
 
 import httpx
 
-from hell_gate_bridge.amtrak import fetch_trains
 from hell_gate_bridge.config import Config
-from hell_gate_bridge.gtfs import GtfsResolver, fetch_gtfs
-from hell_gate_bridge.publisher import publish_positions, publish_trip_updates
+from hell_gate_bridge.publisher import publish
+from hell_gate_bridge.sources.base import Source
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger(__name__)
 
 
-async def _poll_loop(config: Config, resolver: GtfsResolver) -> None:
-    async with httpx.AsyncClient(timeout=config.http_timeout) as http:
-        while True:
-            try:
-                trains = await fetch_trains(http)
-                if config.route_filter:
-                    trains = [t for t in trains if t.route in config.route_filter]
-                positions = await publish_positions(config, http, trains, resolver)
-                updates = await publish_trip_updates(config, http, trains, resolver)
-                # Report what actually shipped, not what Amtrak returned — trains
-                # whose trip_id won't resolve are silently dropped, and the old
-                # "published %d trains" hid that entirely.
-                log.info(
-                    "fetched %d trains → %d positions, %d trip-updates published",
-                    len(trains),
-                    positions,
-                    updates,
-                )
-            except Exception as exc:
-                # httpx timeouts stringify to "", which made this log line blank.
-                # %r always carries the exception type.
-                log.error("poll cycle failed: %r", exc)
-            await asyncio.sleep(config.poll_interval)
+def build_source(config: Config) -> Source:
+    if config.source == "amtrak":
+        from hell_gate_bridge.sources.amtrak import AmtrakSource
+
+        return AmtrakSource(config)
+    if config.source == "buswhere":
+        from hell_gate_bridge.sources.buswhere import BuswhereSource
+
+        return BuswhereSource(config)
+    raise ValueError(f"unknown SOURCE {config.source!r} (expected amtrak|buswhere)")
+
+
+async def _poll_loop(config: Config, source: Source, http: httpx.AsyncClient) -> None:
+    while True:
+        try:
+            updates = await source.fetch(http)
+            positions, trip_updates = await publish(config, http, updates)
+            # Report what actually shipped, not what upstream returned — vehicles
+            # whose trip_id won't resolve are dropped by the source.
+            log.info(
+                "%s: %d vehicles → %d positions, %d trip-updates published",
+                source.name,
+                len(updates),
+                positions,
+                trip_updates,
+            )
+        except Exception as exc:
+            # httpx timeouts stringify to "", which made this log line blank.
+            # %r always carries the exception type.
+            log.error("poll cycle failed: %r", exc)
+        await asyncio.sleep(config.poll_interval)
 
 
 async def main() -> None:
     config = Config()
-    async with httpx.AsyncClient() as client:
-        gtfs_path = await fetch_gtfs(config.gtfs_url, Path(config.gtfs_path), client)
-    resolver = GtfsResolver(gtfs_path)
+    source = build_source(config)
+    log.info("starting source %s", source.name)
     try:
-        await _poll_loop(config, resolver)
+        async with httpx.AsyncClient(timeout=config.http_timeout) as http:
+            await source.startup(http)
+            await _poll_loop(config, source, http)
     except asyncio.CancelledError:
         log.info("shutting down")
 
