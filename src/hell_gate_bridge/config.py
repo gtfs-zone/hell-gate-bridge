@@ -1,5 +1,11 @@
 import os
 
+_AMTRAK_GTFS = "https://content.amtrak.com/content/gtfs/GTFS.zip"
+_COLUMBIA_GTFS = (
+    "https://github.com/columbia-county-ny-transit/gtfs-generator/"
+    "raw/refs/heads/main/columbia_county_gtfs.zip"
+)
+
 
 class Config:
     def __init__(self) -> None:
@@ -17,11 +23,19 @@ class Config:
         self.ingest_url: str | None = os.environ.get("CAFE_CAR_INGEST_URL")
         self.ingest_token: str | None = os.environ.get("INGEST_API_TOKEN")
         self.vehicle_id: str = os.environ.get("INGEST_VEHICLE_ID", "amtrakdriver")
-        self.gtfs_url: str = os.environ.get(
-            "GTFS_URL", "https://content.amtrak.com/content/gtfs/GTFS.zip"
-        )
+        # GTFS default follows the source — Amtrak's national feed vs. the
+        # Columbia County feed we control (not the one buswhere uses internally).
+        default_gtfs = _COLUMBIA_GTFS if self.source == "buswhere" else _AMTRAK_GTFS
+        self.gtfs_url: str = os.environ.get("GTFS_URL", default_gtfs)
         self.gtfs_path: str = os.environ.get("GTFS_PATH", "/app/beat/gtfs_cache.zip")
         route_filter = os.environ.get("ROUTE_FILTER")
+        # Amtrak-only: allowlist of RouteName values.
         self.route_filter: list[str] | None = (
             [r.strip() for r in route_filter.split(",")] if route_filter else None
+        )
+        # buswhere-only: which route slugs to poll. Empty → the source polls
+        # every slug in its committed mapping.
+        buswhere_routes = os.environ.get("BUSWHERE_ROUTES")
+        self.buswhere_routes: list[str] | None = (
+            [r.strip() for r in buswhere_routes.split(",")] if buswhere_routes else None
         )

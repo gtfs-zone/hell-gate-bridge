@@ -66,9 +66,11 @@ class GtfsResolver:
         # (CHI, NYP, …), so this doubles as the station-code validity check when
         # building trip-updates.
         self._trip_stops: dict[str, dict[str, int]] = {}
-        # trip_id -> {stop_id: (arrival_secs, departure_secs)}, agency-local
-        # seconds-since-service-midnight, for computing delays against schedule.
-        self._trip_stop_times: dict[str, dict[str, tuple[int, int]]] = {}
+        # trip_id -> ordered [(stop_sequence, stop_id, arrival_secs)], agency-local
+        # seconds-since-service-midnight. A list (not a dict) so loop routes,
+        # which visit the same stop twice, keep both occurrences — needed to place
+        # a predicted arrival on the correct scheduled visit.
+        self._trip_schedule: dict[str, list[tuple[int, str, int]]] = {}
         # stop_times.txt values are agency-local, so the service day must be
         # anchored in the agency's zone — not UTC.
         self._tz: ZoneInfo = ZoneInfo("America/New_York")
@@ -143,13 +145,14 @@ class GtfsResolver:
                 first_dep[tid] = dep
             if tid not in last_arr or arr > last_arr[tid]:
                 last_arr[tid] = arr
-            self._trip_stops.setdefault(tid, {})[row["stop_id"]] = int(
-                row["stop_sequence"]
-            )
-            self._trip_stop_times.setdefault(tid, {})[row["stop_id"]] = (arr, dep)
+            seq = int(row["stop_sequence"])
+            self._trip_stops.setdefault(tid, {})[row["stop_id"]] = seq
+            self._trip_schedule.setdefault(tid, []).append((seq, row["stop_id"], arr))
 
         for tid in first_dep:
             self._windows[tid] = (first_dep[tid], last_arr[tid])
+        for sched in self._trip_schedule.values():
+            sched.sort()
 
     def _is_active(self, service_id: str, d: date) -> bool:
         date_int = int(d.strftime("%Y%m%d"))
@@ -187,21 +190,24 @@ class GtfsResolver:
         """GTFS route_id for a resolved trip; None if unknown."""
         return self._trip_routes.get(trip_id)
 
-    def scheduled_arrival(
-        self, trip_id: str, stop_id: str, start_date: str
-    ) -> int | None:
-        """Absolute epoch of a stop's scheduled arrival on `start_date` (YYYYMMDD).
+    def trip_schedule(
+        self, trip_id: str, start_date: str
+    ) -> list[tuple[int, str, int]]:
+        """Ordered [(stop_sequence, stop_id, scheduled_arrival_epoch)] for a trip.
 
-        None if the trip or stop is unknown. Used to compute delay from an
-        absolute predicted arrival.
+        Absolute epochs are anchored to `start_date` (YYYYMMDD). Repeated stops
+        (loop routes) appear once per visit, so a predicted arrival can be placed
+        on the matching scheduled occurrence. Empty if the trip is unknown.
         """
-        times = self._trip_stop_times.get(trip_id, {}).get(stop_id)
-        if times is None:
-            return None
-        arr_secs, _ = times
+        sched = self._trip_schedule.get(trip_id)
+        if not sched:
+            return []
         d = date(int(start_date[:4]), int(start_date[4:6]), int(start_date[6:8]))
-        arrival = self._service_midnight(d) + timedelta(seconds=arr_secs)
-        return int(arrival.timestamp())
+        midnight = self._service_midnight(d)
+        return [
+            (seq, stop_id, int((midnight + timedelta(seconds=arr)).timestamp()))
+            for seq, stop_id, arr in sched
+        ]
 
     def resolve_by_route(self, route_id: str, now: datetime) -> tuple[str, str] | None:
         """Resolve the trip on `route_id` whose scheduled window contains `now`.
