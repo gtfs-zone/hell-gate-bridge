@@ -4,6 +4,9 @@ import os
 class Config:
     def __init__(self) -> None:
         self.poll_interval: int = int(os.environ.get("POLL_INTERVAL", "15"))
+        # httpx defaults to 5s; Amtrak's getTrainsData blob is slow and large, so
+        # be explicit rather than inheriting a default that silently times out.
+        self.http_timeout: float = float(os.environ.get("HTTP_TIMEOUT", "20"))
         # cafe-car ingest seam (positions + trip-updates over HTTP). vehicle_id
         # must match the feed's Driver.username so cafe-car's
         # `vehicle:{username}:*` scan finds it.

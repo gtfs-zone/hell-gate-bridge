@@ -5,9 +5,10 @@ import io
 import logging
 import zipfile
 from dataclasses import dataclass
-from datetime import UTC, date, datetime, timedelta
+from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import TYPE_CHECKING
+from zoneinfo import ZoneInfo
 
 if TYPE_CHECKING:
     import httpx
@@ -56,6 +57,9 @@ class GtfsResolver:
         # (CHI, NYP, …), so this doubles as the station-code validity check when
         # building trip-updates.
         self._trip_stops: dict[str, dict[str, int]] = {}
+        # stop_times.txt values are agency-local, so the service day must be
+        # anchored in the agency's zone — not UTC.
+        self._tz: ZoneInfo = ZoneInfo("America/New_York")
         self._load(path)
 
     def _read_file(self, path: Path, name: str) -> str:
@@ -74,6 +78,17 @@ class GtfsResolver:
             "saturday",
             "sunday",
         ]
+
+        try:
+            agencies = csv.DictReader(io.StringIO(self._read_file(path, "agency.txt")))
+            tz_name = next(
+                (r["agency_timezone"] for r in agencies if r.get("agency_timezone")),
+                None,
+            )
+            if tz_name:
+                self._tz = ZoneInfo(tz_name)
+        except (KeyError, OSError, ValueError) as exc:
+            log.warning("no agency_timezone (%s), assuming %s", exc, self._tz)
 
         for row in csv.DictReader(io.StringIO(self._read_file(path, "calendar.txt"))):
             bitmask = sum((1 << i) for i, d in enumerate(day_names) if row[d] == "1")
@@ -124,14 +139,19 @@ class GtfsResolver:
         if not candidates:
             return None
 
+        local_today = now.astimezone(self._tz).date()
         for lookback in range(5):
-            d = now.date() - timedelta(days=lookback)
+            d = local_today - timedelta(days=lookback)
             matches: list[str] = []
             for trip_id, service_id in candidates:
                 if not self._is_active(service_id, d):
                     continue
                 first_dep, last_arr = self._windows.get(trip_id, (0, 0))
-                service_midnight = datetime(d.year, d.month, d.day, tzinfo=UTC)
+                # GTFS defines the service day as noon minus 12h, which keeps
+                # DST-transition days an honest 23 or 25 hours long.
+                service_midnight = datetime(
+                    d.year, d.month, d.day, 12, tzinfo=self._tz
+                ) - timedelta(hours=12)
                 window_start = service_midnight + timedelta(seconds=first_dep)
                 window_end = service_midnight + timedelta(seconds=last_arr)
                 if window_start <= now <= window_end:
