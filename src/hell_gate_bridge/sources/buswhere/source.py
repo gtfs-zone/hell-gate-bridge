@@ -127,7 +127,13 @@ class BuswhereSource(Source):
         updates: list[VehicleUpdate] = []
         unresolved: list[str] = []
         for slug in self._slugs:
-            obs = await fetch_route(http, slug)
+            try:
+                obs = await fetch_route(http, slug)
+            except Exception:
+                # One malformed/unreachable route must not abort the whole
+                # cycle and suppress the routes that parse cleanly.
+                log.exception("buswhere: route %s failed, skipping", slug)
+                continue
             if obs is None:
                 continue  # dormant / nothing running
             now = (

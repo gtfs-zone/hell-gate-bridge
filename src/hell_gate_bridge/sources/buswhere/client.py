@@ -63,11 +63,15 @@ async def fetch_route(
     if lat is None or lon is None:
         return None
 
-    stop_eta = {
-        str(sid): float(secs)
-        for sid, secs in (data.get("stop_eta") or {}).items()
-        if secs is not None
-    }
+    # Upstream stop_eta values are a number, null, or a sentinel string such as
+    # "departed" (the bus already passed that stop this trip). Anything that
+    # isn't a numeric ETA simply means "no upcoming arrival to predict here".
+    stop_eta: dict[str, float] = {}
+    for sid, secs in (data.get("stop_eta") or {}).items():
+        try:
+            stop_eta[str(sid)] = float(secs)
+        except (TypeError, ValueError):
+            continue
     return BuswhereObservation(
         lat=float(lat),
         lon=float(lon),

@@ -1,12 +1,14 @@
 """resolve_by_route + BuswhereSource: route-window resolution and loop-aware
 stop-time construction against the Columbia County GTFS shape."""
 
+import asyncio
 from datetime import UTC, datetime
 from zoneinfo import ZoneInfo
 
 from hell_gate_bridge.config import Config
 from hell_gate_bridge.gtfs import GtfsResolver
-from hell_gate_bridge.sources.buswhere.client import BuswhereObservation
+from hell_gate_bridge.sources.buswhere import source as buswhere_source_mod
+from hell_gate_bridge.sources.buswhere.client import BuswhereObservation, fetch_route
 from hell_gate_bridge.sources.buswhere.source import BuswhereSource
 
 TZ = ZoneInfo("America/New_York")
@@ -167,3 +169,65 @@ def test_now_from_utc_timestamp_resolves_local_day(tmp_path, monkeypatch):
     )
     v = src._build("testslug", obs, now)
     assert v is not None and v.start_date == "20240102"
+
+
+class _FakeResponse:
+    def __init__(self, payload):
+        self.status_code = 200
+        self._payload = payload
+
+    def json(self):
+        return self._payload
+
+
+class _FakeHttp:
+    def __init__(self, payload):
+        self._payload = payload
+
+    async def get(self, *args, **kwargs):
+        return _FakeResponse(self._payload)
+
+
+def test_fetch_route_tolerates_non_numeric_stop_eta():
+    # Upstream mixes numbers, null, and sentinel strings like "departed" in
+    # stop_eta; only numeric ETAs (including numeric strings) survive.
+    payload = {
+        "active": True,
+        "devices": [
+            {"position": {"lat": 42.25, "lon": -73.79}, "updated_at": 1700000000}
+        ],
+        "stop_eta": {
+            "150769331": "departed",
+            "150769332": None,
+            "150769333": 120,
+            "150769334": "300",
+            "150769335": "arriving",
+        },
+    }
+    obs = asyncio.run(fetch_route(_FakeHttp(payload), "hudson__albany_b_pm"))
+    assert obs is not None
+    assert obs.stop_eta == {"150769333": 120.0, "150769334": 300.0}
+
+
+def test_fetch_failure_on_one_route_does_not_abort_cycle(tmp_path, monkeypatch, caplog):
+    # A route whose fetch raises must be skipped, not kill the whole poll cycle.
+    src = _buswhere_source(tmp_path, monkeypatch)
+    src._routes = {"bad": "R", "good": "R"}
+    src._slugs = ["bad", "good"]
+    now = datetime(2024, 1, 2, 8, 25, tzinfo=TZ)
+    good_obs = BuswhereObservation(
+        lat=42.25,
+        lon=-73.79,
+        timestamp=int(now.timestamp()),
+        stop_eta={"bwC": 900},
+    )
+
+    async def fake_fetch_route(http, slug, base_url=None):
+        if slug == "bad":
+            raise ValueError("could not convert string to float: 'departed'")
+        return good_obs
+
+    monkeypatch.setattr(buswhere_source_mod, "fetch_route", fake_fetch_route)
+    updates = asyncio.run(src.fetch(None))
+    assert [u.trip_id for u in updates] == ["LOOP"]
+    assert "route bad failed" in caplog.text
