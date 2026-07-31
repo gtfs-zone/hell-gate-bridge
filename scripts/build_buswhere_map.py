@@ -39,11 +39,21 @@ GTFS_URL = (
 )
 BUSWHERE_BASE = "https://buswhere.com/columbiacountyny/routes"
 
-# Curated buswhere slug -> GTFS route_id. Small and hand-maintained; a slug that
-# 302-redirects when fetched isn't a real route (e.g. a guessed `_pm`).
+# Curated buswhere slug -> GTFS route_id. Small and hand-maintained; a 302 means
+# "dormant right now", NOT "not a real route", so only add a slug once you've
+# seen it serve stops during its own window.
+#
+# buswhere splits the Albany commuter into one slug per run, while the GTFS has a
+# single Albany-Commuter route with eight weekday trips (A_AM 06:15, C_AM 07:00,
+# B_PM 14:30, D_PM 16:00, each NB/SB). That's fine: resolve_by_route picks the
+# trip by route + scheduled window, so every run slug maps to the one route_id.
+# Note the inconsistent separator — AM runs double the underscore, PM runs don't.
+# `hudson__albany_a__am` and a presumed `hudson__albany_d_pm` are unconfirmed;
+# catch them live in their windows before adding.
 ROUTES: dict[str, str] = {
     "shopping_shuttle": "Shopping",
     "hudson__albany_c__am": "Albany-Commuter",
+    "hudson__albany_b_pm": "Albany-Commuter",
     "chatham": "Chatham-Hudson",
 }
 
