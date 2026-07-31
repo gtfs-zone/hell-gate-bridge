@@ -11,12 +11,15 @@ run this when the routes you care about are running (e.g. the Albany commuter in
 the morning); it MERGES into any existing mapping.json, so several runs across
 the day accrete the full map. Review the printed report before committing.
 
-`--wait` parks on a route until it wakes up, so you can start the script before
-service begins instead of watching the clock.
+`--watch` does that accreting for you: it parks on every route that isn't mapped
+yet — including unconfirmed candidate slugs — and captures each one the moment it
+wakes up, saving after every capture. Leave it running across a service day and
+it fills in the map on its own.
 
 Usage:
-    uv run python scripts/build_buswhere_map.py [--gtfs PATH_OR_URL]
-    uv run python scripts/build_buswhere_map.py --wait hudson__albany_c__am
+    uv run python scripts/build_buswhere_map.py            # one pass, live routes
+    uv run python scripts/build_buswhere_map.py --watch    # until all are caught
+    uv run python scripts/build_buswhere_map.py --watch --routes chatham
 """
 
 from __future__ import annotations
@@ -48,14 +51,23 @@ BUSWHERE_BASE = "https://buswhere.com/columbiacountyny/routes"
 # B_PM 14:30, D_PM 16:00, each NB/SB). That's fine: resolve_by_route picks the
 # trip by route + scheduled window, so every run slug maps to the one route_id.
 # Note the inconsistent separator — AM runs double the underscore, PM runs don't.
-# `hudson__albany_a__am` and a presumed `hudson__albany_d_pm` are unconfirmed;
-# catch them live in their windows before adding.
 ROUTES: dict[str, str] = {
     "shopping_shuttle": "Shopping",
     "hudson__albany_c__am": "Albany-Commuter",
     "hudson__albany_b_pm": "Albany-Commuter",
     "chatham": "Chatham-Hudson",
 }
+
+# Slugs we believe exist but have never seen serve stops — the GTFS has A_AM and
+# D_PM runs, and the confirmed slugs imply this spelling. --watch polls them; the
+# first one that answers is promoted into mapping.json's routes automatically, so
+# a guess that's wrong just stays dormant forever and costs nothing.
+CANDIDATE_ROUTES: dict[str, str] = {
+    "hudson__albany_a__am": "Albany-Commuter",
+    "hudson__albany_d_pm": "Albany-Commuter",
+}
+
+ALL_ROUTES: dict[str, str] = {**ROUTES, **CANDIDATE_ROUTES}
 
 MAPPING_PATH = (
     Path(__file__).resolve().parent.parent
@@ -155,144 +167,177 @@ def _fetch_route_stops(client: httpx.Client, slug: str) -> list[dict] | None:
     return stops or None
 
 
-def _wait_for_routes(
-    client: httpx.Client,
-    slugs: list[str],
-    interval: float,
-    deadline: float | None,
-) -> dict[str, list[dict]]:
-    """Poll `slugs` until each serves stops. Returns whatever went live.
-
-    Stops fetched here are handed to the build pass, so waking a route costs one
-    fetch, not two. Ctrl-C returns early with whatever is already in hand.
-    """
-    live: dict[str, list[dict]] = {}
-    pending = list(slugs)
-    attempt = 0
-    try:
-        while pending:
-            attempt += 1
-            for slug in list(pending):
-                stops = _fetch_route_stops(client, slug)
-                if stops is not None:
-                    live[slug] = stops
-                    pending.remove(slug)
-                    print(f"[wake] {slug}: live with {len(stops)} stops")
-                time.sleep(1.0)  # be polite
-            if not pending:
-                break
-            now = time.time()
-            if deadline is not None and now >= deadline:
-                print(f"[wait] timed out with {', '.join(pending)} still dormant")
-                break
-            stamp = time.strftime("%H:%M:%S")
-            nap = interval if deadline is None else min(interval, deadline - now)
-            print(
-                f"[wait] {stamp} check #{attempt}: {', '.join(pending)} still "
-                f"dormant — retrying in {nap / 60:.1f} min (Ctrl-C to stop)"
-            )
-            time.sleep(nap)
-    except KeyboardInterrupt:
-        print("\n[wait] interrupted — building with what we have")
-    return live
-
-
-def main() -> int:
-    ap = argparse.ArgumentParser()
-    ap.add_argument("--gtfs", default=GTFS_URL, help="GTFS .zip path or URL")
-    ap.add_argument(
-        "--wait",
-        metavar="SLUGS",
-        help="comma-separated route slugs to poll until they go live before "
-        "building (e.g. hudson__albany_c__am)",
-    )
-    ap.add_argument(
-        "--wait-interval",
-        type=float,
-        default=5.0,
-        help="minutes between --wait checks (default 5)",
-    )
-    ap.add_argument(
-        "--wait-timeout",
-        type=float,
-        default=0.0,
-        help="give up waiting after N minutes (default 0 = wait indefinitely)",
-    )
-    args = ap.parse_args()
-
-    wait_slugs: list[str] = []
-    if args.wait:
-        wait_slugs = [s.strip() for s in args.wait.split(",") if s.strip()]
-        unknown = [s for s in wait_slugs if s not in ROUTES]
-        if unknown:
-            ap.error(
-                f"unknown slug(s): {', '.join(unknown)}. Known: {', '.join(ROUTES)}"
-            )
-
+def _load_mapping() -> dict[str, dict]:
+    """The committed mapping, or an empty one. Only confirmed routes are seeded."""
     mapping: dict[str, dict] = {"routes": dict(ROUTES), "stops": {}}
     if MAPPING_PATH.exists():
         existing = json.loads(MAPPING_PATH.read_text())
         mapping["stops"] = existing.get("stops", {})
         mapping["routes"].update(existing.get("routes", {}))
+    return mapping
 
-    matched = 0
-    dormant: list[str] = []
-    with httpx.Client(follow_redirects=False, timeout=30) as client:
-        prefetched: dict[str, list[dict]] = {}
-        if wait_slugs:
-            print(f"waiting for {', '.join(wait_slugs)} to go live…")
-            deadline = (
-                time.time() + args.wait_timeout * 60 if args.wait_timeout else None
-            )
-            prefetched = _wait_for_routes(
-                client, wait_slugs, args.wait_interval * 60, deadline
-            )
 
-        # Fetched after any wait so an overnight park doesn't build against a
-        # GTFS snapshot from hours ago.
-        gtfs_stops = _load_gtfs_stops(args.gtfs)
-        print(f"loaded {len(gtfs_stops)} GTFS stops")
-
-        for slug in ROUTES:
-            stops = prefetched.pop(slug, None)
-            if stops is None:
-                stops = _fetch_route_stops(client, slug)
-                time.sleep(1.0)  # be polite
-            if stops is None:
-                dormant.append(slug)
-                print(f"[skip] {slug}: dormant/unavailable (run when active)")
-                continue
-            print(f"[{slug}] {len(stops)} buswhere stops")
-            for s in stops:
-                bid = str(s["id"])
-                blat, blon = float(s["lat"]), float(s["lon"])
-                gid, gname, dist = min(
-                    (
-                        (g[0], g[1], _haversine_m(blat, blon, g[2], g[3]))
-                        for g in gtfs_stops
-                    ),
-                    key=lambda x: x[2],
-                )
-                flag = ""
-                if dist > REJECT_METERS:
-                    flag = " !! REJECTED (too far)"
-                elif dist > WARN_METERS:
-                    flag = " ! review"
-                addr = s.get("address", "")
-                print(f"  {bid} {addr!r:32} -> {gid} {gname!r} ({dist:.0f} m){flag}")
-                if dist <= REJECT_METERS:
-                    mapping["stops"][bid] = gid
-                    matched += 1
-
+def _save_mapping(mapping: dict[str, dict]) -> None:
     mapping["stops"] = dict(sorted(mapping["stops"].items()))
     MAPPING_PATH.parent.mkdir(parents=True, exist_ok=True)
     MAPPING_PATH.write_text(json.dumps(mapping, indent=2) + "\n")
-    print(
-        f"\nwrote {MAPPING_PATH} — {len(mapping['stops'])} total stop mappings "
-        f"({matched} matched this run)"
+
+
+def _map_route(
+    slug: str,
+    stops: list[dict],
+    gtfs_stops: list[tuple[str, str, float, float]],
+    mapping: dict[str, dict],
+) -> int:
+    """Match one route's stops into `mapping`. Returns how many were accepted."""
+    print(f"[{slug}] {len(stops)} buswhere stops")
+    matched = 0
+    for s in stops:
+        bid = str(s["id"])
+        blat, blon = float(s["lat"]), float(s["lon"])
+        gid, gname, dist = min(
+            ((g[0], g[1], _haversine_m(blat, blon, g[2], g[3])) for g in gtfs_stops),
+            key=lambda x: x[2],
+        )
+        flag = ""
+        if dist > REJECT_METERS:
+            flag = " !! REJECTED (too far)"
+        elif dist > WARN_METERS:
+            flag = " ! review"
+        addr = s.get("address", "")
+        print(f"  {bid} {addr!r:32} -> {gid} {gname!r} ({dist:.0f} m){flag}")
+        if dist <= REJECT_METERS:
+            mapping["stops"][bid] = gid
+            matched += 1
+    # A candidate slug that actually served stops is a real route: record it so
+    # the runtime source starts polling it too.
+    mapping["routes"].setdefault(slug, ALL_ROUTES[slug])
+    return matched
+
+
+def _watch(
+    client: httpx.Client,
+    slugs: list[str],
+    gtfs_stops: list[tuple[str, str, float, float]],
+    mapping: dict[str, dict],
+    interval: float,
+    deadline: float | None,
+) -> list[str]:
+    """Poll `slugs` until each has been captured, mapping them as they wake up.
+
+    Routes go live on their own schedule and there's no calendar to consult, so
+    the only reliable way to map them all is to keep asking. Each capture is
+    written immediately — Ctrl-C after six hours keeps everything caught so far.
+    Returns the slugs still dormant when the loop ends.
+    """
+    pending = list(slugs)
+    cycle = 0
+    try:
+        while pending:
+            cycle += 1
+            for slug in list(pending):
+                stops = _fetch_route_stops(client, slug)
+                time.sleep(1.0)  # be polite
+                if stops is None:
+                    continue
+                pending.remove(slug)
+                _map_route(slug, stops, gtfs_stops, mapping)
+                _save_mapping(mapping)
+                print(
+                    f"  ↳ captured {slug}; {len(mapping['stops'])} total stop "
+                    f"mappings written"
+                )
+            if not pending:
+                break
+            now = time.time()
+            if deadline is not None and now >= deadline:
+                print(f"[watch] timed out with {len(pending)} route(s) still dormant")
+                break
+            nap = interval if deadline is None else min(interval, deadline - now)
+            print(
+                f"[watch] {time.strftime('%H:%M:%S')} cycle {cycle}: waiting on "
+                f"{', '.join(pending)} — next check in {nap / 60:.0f} min "
+                f"(Ctrl-C to stop)"
+            )
+            time.sleep(nap)
+    except KeyboardInterrupt:
+        print("\n[watch] interrupted — everything captured so far is saved")
+    return pending
+
+
+def main() -> int:
+    ap = argparse.ArgumentParser(
+        description="Build the buswhere→Columbia County GTFS ID map.",
+        epilog="Routes are only mappable while they run, so --watch is the way "
+        "to fill in the map without babysitting the clock.",
     )
+    ap.add_argument("--gtfs", default=GTFS_URL, help="GTFS .zip path or URL")
+    ap.add_argument(
+        "--watch",
+        action="store_true",
+        help="keep running, capturing each route as it goes live (including the "
+        "unconfirmed candidate slugs) instead of one pass over whatever is up now",
+    )
+    ap.add_argument(
+        "--routes",
+        metavar="SLUGS",
+        help="comma-separated slugs to limit this run to (default: every known "
+        "route, plus candidates when --watch is set)",
+    )
+    ap.add_argument(
+        "--interval",
+        type=float,
+        default=5.0,
+        help="minutes between --watch checks (default 5)",
+    )
+    ap.add_argument(
+        "--timeout",
+        type=float,
+        default=0.0,
+        help="give up watching after N minutes (default 0 = run until every "
+        "route has been captured)",
+    )
+    args = ap.parse_args()
+
+    # Candidates are guesses, so they're only worth the extra polling in --watch,
+    # where a dormant route costs nothing but another cycle.
+    slugs = list(ALL_ROUTES) if args.watch else list(ROUTES)
+    if args.routes:
+        slugs = [s.strip() for s in args.routes.split(",") if s.strip()]
+        unknown = [s for s in slugs if s not in ALL_ROUTES]
+        if unknown:
+            ap.error(
+                f"unknown slug(s): {', '.join(unknown)}. Known: {', '.join(ALL_ROUTES)}"
+            )
+
+    mapping = _load_mapping()
+    with httpx.Client(follow_redirects=False, timeout=30) as client:
+        gtfs_stops = _load_gtfs_stops(args.gtfs)
+        print(f"loaded {len(gtfs_stops)} GTFS stops")
+
+        if args.watch:
+            print(f"watching {len(slugs)} route(s): {', '.join(slugs)}")
+            deadline = time.time() + args.timeout * 60 if args.timeout else None
+            dormant = _watch(
+                client, slugs, gtfs_stops, mapping, args.interval * 60, deadline
+            )
+        else:
+            dormant = []
+            matched = 0
+            for slug in slugs:
+                stops = _fetch_route_stops(client, slug)
+                time.sleep(1.0)  # be polite
+                if stops is None:
+                    dormant.append(slug)
+                    print(f"[skip] {slug}: dormant (retry when active, or --watch)")
+                    continue
+                matched += _map_route(slug, stops, gtfs_stops, mapping)
+            _save_mapping(mapping)
+            print(f"\n{matched} stop matches this run")
+
+    print(f"{MAPPING_PATH}: {len(mapping['stops'])} total stop mappings")
     if dormant:
-        print(f"dormant routes not updated this run: {', '.join(dormant)}")
+        print(f"still unmapped: {', '.join(dormant)}")
     return 0
 
 
