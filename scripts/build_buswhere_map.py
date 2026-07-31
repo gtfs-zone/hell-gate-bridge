@@ -11,8 +11,12 @@ run this when the routes you care about are running (e.g. the Albany commuter in
 the morning); it MERGES into any existing mapping.json, so several runs across
 the day accrete the full map. Review the printed report before committing.
 
+`--wait` parks on a route until it wakes up, so you can start the script before
+service begins instead of watching the clock.
+
 Usage:
     uv run python scripts/build_buswhere_map.py [--gtfs PATH_OR_URL]
+    uv run python scripts/build_buswhere_map.py --wait hudson__albany_c__am
 """
 
 from __future__ import annotations
@@ -141,13 +145,79 @@ def _fetch_route_stops(client: httpx.Client, slug: str) -> list[dict] | None:
     return stops or None
 
 
+def _wait_for_routes(
+    client: httpx.Client,
+    slugs: list[str],
+    interval: float,
+    deadline: float | None,
+) -> dict[str, list[dict]]:
+    """Poll `slugs` until each serves stops. Returns whatever went live.
+
+    Stops fetched here are handed to the build pass, so waking a route costs one
+    fetch, not two. Ctrl-C returns early with whatever is already in hand.
+    """
+    live: dict[str, list[dict]] = {}
+    pending = list(slugs)
+    attempt = 0
+    try:
+        while pending:
+            attempt += 1
+            for slug in list(pending):
+                stops = _fetch_route_stops(client, slug)
+                if stops is not None:
+                    live[slug] = stops
+                    pending.remove(slug)
+                    print(f"[wake] {slug}: live with {len(stops)} stops")
+                time.sleep(1.0)  # be polite
+            if not pending:
+                break
+            now = time.time()
+            if deadline is not None and now >= deadline:
+                print(f"[wait] timed out with {', '.join(pending)} still dormant")
+                break
+            stamp = time.strftime("%H:%M:%S")
+            nap = interval if deadline is None else min(interval, deadline - now)
+            print(
+                f"[wait] {stamp} check #{attempt}: {', '.join(pending)} still "
+                f"dormant — retrying in {nap / 60:.1f} min (Ctrl-C to stop)"
+            )
+            time.sleep(nap)
+    except KeyboardInterrupt:
+        print("\n[wait] interrupted — building with what we have")
+    return live
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--gtfs", default=GTFS_URL, help="GTFS .zip path or URL")
+    ap.add_argument(
+        "--wait",
+        metavar="SLUGS",
+        help="comma-separated route slugs to poll until they go live before "
+        "building (e.g. hudson__albany_c__am)",
+    )
+    ap.add_argument(
+        "--wait-interval",
+        type=float,
+        default=5.0,
+        help="minutes between --wait checks (default 5)",
+    )
+    ap.add_argument(
+        "--wait-timeout",
+        type=float,
+        default=0.0,
+        help="give up waiting after N minutes (default 0 = wait indefinitely)",
+    )
     args = ap.parse_args()
 
-    gtfs_stops = _load_gtfs_stops(args.gtfs)
-    print(f"loaded {len(gtfs_stops)} GTFS stops")
+    wait_slugs: list[str] = []
+    if args.wait:
+        wait_slugs = [s.strip() for s in args.wait.split(",") if s.strip()]
+        unknown = [s for s in wait_slugs if s not in ROUTES]
+        if unknown:
+            ap.error(
+                f"unknown slug(s): {', '.join(unknown)}. Known: {', '.join(ROUTES)}"
+            )
 
     mapping: dict[str, dict] = {"routes": dict(ROUTES), "stops": {}}
     if MAPPING_PATH.exists():
@@ -158,9 +228,26 @@ def main() -> int:
     matched = 0
     dormant: list[str] = []
     with httpx.Client(follow_redirects=False, timeout=30) as client:
+        prefetched: dict[str, list[dict]] = {}
+        if wait_slugs:
+            print(f"waiting for {', '.join(wait_slugs)} to go live…")
+            deadline = (
+                time.time() + args.wait_timeout * 60 if args.wait_timeout else None
+            )
+            prefetched = _wait_for_routes(
+                client, wait_slugs, args.wait_interval * 60, deadline
+            )
+
+        # Fetched after any wait so an overnight park doesn't build against a
+        # GTFS snapshot from hours ago.
+        gtfs_stops = _load_gtfs_stops(args.gtfs)
+        print(f"loaded {len(gtfs_stops)} GTFS stops")
+
         for slug in ROUTES:
-            stops = _fetch_route_stops(client, slug)
-            time.sleep(1.0)  # be polite
+            stops = prefetched.pop(slug, None)
+            if stops is None:
+                stops = _fetch_route_stops(client, slug)
+                time.sleep(1.0)  # be polite
             if stops is None:
                 dormant.append(slug)
                 print(f"[skip] {slug}: dormant/unavailable (run when active)")
