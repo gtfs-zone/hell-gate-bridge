@@ -22,9 +22,13 @@ log = logging.getLogger(__name__)
 
 def _position_body(config: Config, v: VehicleUpdate) -> dict[str, object]:
     body: dict[str, object] = {
-        "vehicle_id": v.vehicle_id,
+        "tracker_id": v.tracker_id,
         "trip_id": v.trip_id,
     }
+    if v.vehicle_id is not None:
+        body["vehicle_id"] = v.vehicle_id
+    if v.vehicle_label is not None:
+        body["vehicle_label"] = v.vehicle_label
     if v.start_date is not None:
         body["start_date"] = v.start_date
     body["lat"] = v.lat
@@ -86,12 +90,16 @@ async def publish(
             continue
         body = {
             "trip_id": v.trip_id,
-            "vehicle_id": v.vehicle_id,
+            "tracker_id": v.tracker_id,
             "timestamp": v.timestamp,
             "stop_time_updates": [
                 _stop_time_update_body(u) for u in v.stop_time_updates
             ],
         }
+        if v.vehicle_id is not None:
+            body["vehicle_id"] = v.vehicle_id
+        if v.vehicle_label is not None:
+            body["vehicle_label"] = v.vehicle_label
         if v.start_date is not None:
             body["start_date"] = v.start_date
         try:

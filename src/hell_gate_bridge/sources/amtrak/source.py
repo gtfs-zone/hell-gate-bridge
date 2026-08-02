@@ -137,7 +137,18 @@ class AmtrakSource(Source):
             trip_id, start_date = resolved
             updates.append(
                 VehicleUpdate(
-                    vehicle_id=config.vehicle_id,
+                    tracker_id=config.vehicle_id,
+                    # train_num alone is not unique — a >24h daily train has
+                    # several concurrent instances of one train_num live at once,
+                    # exactly what start_date disambiguates. Pair them for a
+                    # unique, stable-per-run, rider-readable vehicle id; the label
+                    # stays the bare train number riders recognise.
+                    vehicle_id=(
+                        f"{train.train_num}:{start_date}"
+                        if start_date
+                        else train.train_num
+                    ),
+                    vehicle_label=train.train_num,
                     trip_id=trip_id,
                     start_date=start_date,
                     timestamp=int(train.timestamp.timestamp()),

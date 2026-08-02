@@ -106,7 +106,7 @@ class BuswhereSource(Source):
             )
 
         return VehicleUpdate(
-            vehicle_id=self._config.vehicle_id,
+            tracker_id=self._config.vehicle_id,
             trip_id=trip_id,
             start_date=start_date,
             timestamp=obs.timestamp,

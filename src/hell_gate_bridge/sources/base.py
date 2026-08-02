@@ -37,14 +37,23 @@ class VehicleUpdate:
     `trip_id` is always set — a source resolves the trip itself rather than
     trusting the device, so cafe-car never has to. `start_date` disambiguates
     concurrent instances of the same trip_id.
+
+    `tracker_id` is the secret cafe-car credential (Tracker.id) that selects the
+    feed namespace — it is shared by every vehicle a source publishes. The public
+    per-vehicle identity is separate: `vehicle_id`/`vehicle_label` become the
+    GTFS VehicleDescriptor id/label. A source that owns many concurrent vehicles
+    under one credential (Amtrak) MUST set them so cafe-car does not collapse the
+    fleet onto the tracker nickname; a single-device source may leave them None.
     """
 
-    vehicle_id: str
+    tracker_id: str
     trip_id: str
     timestamp: int  # epoch seconds
     lat: float
     lon: float
     start_date: str | None = None  # YYYYMMDD
+    vehicle_id: str | None = None  # public VehicleDescriptor.id
+    vehicle_label: str | None = None  # public VehicleDescriptor.label
     route_id: str | None = None
     speed_mps: float | None = None
     bearing: float | None = None  # degrees
