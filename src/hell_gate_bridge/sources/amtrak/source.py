@@ -103,6 +103,37 @@ def _build_stop_time_updates(
     return updates
 
 
+def _current_stop(
+    train: Train, stop_seqs: dict[str, int]
+) -> tuple[int, str, str] | None:
+    """Where the train is now → (stop_sequence, stop_id, VehicleStopStatus).
+
+    Reuses the per-stop statuses `client.py` already derives from Amtrak's
+    postarr/postdep flags. A stop the train has arrived at but not departed is
+    where it is standing; otherwise the single `enroute` stop is the one it is
+    running towards. The client guarantees these never coexist — it demotes
+    `enroute` to `scheduled` as soon as anything is `arrived`.
+
+    None when the train has not started, has finished, or reports a station the
+    resolved trip does not carry — the same skip `_build_stop_time_updates`
+    makes. Nothing is inferred from position: an unplaceable train is published
+    as unplaceable.
+    """
+    arrived = [s for s in train.stops if s.status == "arrived"]
+    if arrived:
+        stop, status = arrived[-1], "STOPPED_AT"
+    else:
+        enroute = next((s for s in train.stops if s.status == "enroute"), None)
+        if enroute is None:
+            return None
+        stop, status = enroute, "IN_TRANSIT_TO"
+
+    seq = stop_seqs.get(stop.station_code)
+    if seq is None:
+        return None
+    return seq, stop.station_code, status
+
+
 class AmtrakSource(Source):
     name = "amtrak"
 
@@ -135,6 +166,8 @@ class AmtrakSource(Source):
                 unresolved.append(train.train_num)
                 continue
             trip_id, start_date = resolved
+            stop_seqs = resolver.stop_sequences(trip_id)
+            current = _current_stop(train, stop_seqs)
             updates.append(
                 VehicleUpdate(
                     tracker_id=config.vehicle_id,
@@ -157,9 +190,10 @@ class AmtrakSource(Source):
                     speed_mps=round(train.speed_mph * _MPH_TO_MS, 4),
                     bearing=_heading_to_degrees(train.heading),
                     route_id=resolver.route_for(trip_id),
-                    stop_time_updates=_build_stop_time_updates(
-                        train, resolver.stop_sequences(trip_id)
-                    ),
+                    current_stop_sequence=current[0] if current else None,
+                    current_stop_id=current[1] if current else None,
+                    current_status=current[2] if current else None,
+                    stop_time_updates=_build_stop_time_updates(train, stop_seqs),
                 )
             )
 

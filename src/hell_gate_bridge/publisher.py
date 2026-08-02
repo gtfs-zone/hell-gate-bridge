@@ -40,6 +40,14 @@ def _position_body(config: Config, v: VehicleUpdate) -> dict[str, object]:
         body["bearing"] = v.bearing
     if v.route_id is not None:
         body["route_id"] = v.route_id
+    # All three together or none — cafe-car rejects a status with no stop to
+    # describe. Sequence 0 is a real stop_sequence, so test against None.
+    if v.current_stop_sequence is not None:
+        body["current_stop_sequence"] = v.current_stop_sequence
+    if v.current_stop_id is not None:
+        body["stop_id"] = v.current_stop_id
+    if v.current_status is not None:
+        body["current_status"] = v.current_status
     return body
 
 

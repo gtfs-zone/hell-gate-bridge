@@ -105,6 +105,12 @@ class BuswhereSource(Source):
                 )
             )
 
+        # The surviving updates are this trip's remaining visits, in schedule
+        # order, so the first one is the stop the bus is running towards.
+        # buswhere reports an ETA to every stop and nothing about arrival, so
+        # IN_TRANSIT_TO is all we can honestly claim — never STOPPED_AT.
+        next_stop = stop_time_updates[0] if stop_time_updates else None
+
         return VehicleUpdate(
             tracker_id=self._config.vehicle_id,
             trip_id=trip_id,
@@ -118,6 +124,9 @@ class BuswhereSource(Source):
             # wrong-unit value.
             speed_mps=None,
             bearing=None,
+            current_stop_sequence=next_stop.stop_sequence if next_stop else None,
+            current_stop_id=next_stop.stop_id if next_stop else None,
+            current_status="IN_TRANSIT_TO" if next_stop else None,
             stop_time_updates=stop_time_updates,
         )
 

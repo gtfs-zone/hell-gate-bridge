@@ -142,6 +142,48 @@ def test_buswhere_build_loop_keeps_upcoming_only(tmp_path, monkeypatch):
     assert by_seq[3].arrival_delay == 0
 
 
+def test_buswhere_build_current_stop_is_next_visit(tmp_path, monkeypatch):
+    # Same 08:25 fix as above: the first surviving update (C, seq 2) is the stop
+    # the bus is running towards, and an ETA feed can only claim IN_TRANSIT_TO.
+    src = _buswhere_source(tmp_path, monkeypatch)
+    now = datetime(2024, 1, 2, 8, 25, tzinfo=TZ)
+    ts = int(now.timestamp())
+    obs = BuswhereObservation(
+        lat=42.25,
+        lon=-73.79,
+        timestamp=ts,
+        stop_eta={"bwC": 15 * 60 + 180, "bwA": 35 * 60, "bwB": 55 * 60},
+    )
+
+    v = src._build("testslug", obs, now)
+    assert v is not None
+    assert (v.current_stop_sequence, v.current_stop_id, v.current_status) == (
+        2,
+        "C",
+        "IN_TRANSIT_TO",
+    )
+
+
+def test_buswhere_build_no_current_stop_without_predictions(tmp_path, monkeypatch):
+    # Every ETA belongs to the next loop, so nothing survives the filter and the
+    # bus is published with no claim about where it is.
+    src = _buswhere_source(tmp_path, monkeypatch)
+    now = datetime(2024, 1, 2, 8, 25, tzinfo=TZ)
+    obs = BuswhereObservation(
+        lat=42.25,
+        lon=-73.79,
+        timestamp=int(now.timestamp()),
+        stop_eta={"bwB": 55 * 60},
+    )
+
+    v = src._build("testslug", obs, now)
+    assert v is not None
+    assert v.stop_time_updates == []
+    assert v.current_stop_sequence is None
+    assert v.current_stop_id is None
+    assert v.current_status is None
+
+
 def test_buswhere_build_unresolved_when_no_trip_running(tmp_path, monkeypatch):
     src = _buswhere_source(tmp_path, monkeypatch)
     now = datetime(2024, 1, 2, 6, 0, tzinfo=TZ)  # before service

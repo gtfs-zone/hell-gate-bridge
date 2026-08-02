@@ -44,6 +44,13 @@ class VehicleUpdate:
     GTFS VehicleDescriptor id/label. A source that owns many concurrent vehicles
     under one credential (Amtrak) MUST set them so cafe-car does not collapse the
     fleet onto the tracker nickname; a single-device source may leave them None.
+
+    `current_stop_*`/`current_status` say where the vehicle is *along its trip*,
+    which is what lets a consumer place it against the schedule rather than only
+    on a map. Every GTFS-RT VehicleStopStatus names a stop, so the three are set
+    together or left None together — cafe-car rejects a status without a stop.
+    A source that cannot tell where the vehicle is leaves all three None, and
+    the feed then reports nothing rather than guessing.
     """
 
     tracker_id: str
@@ -57,6 +64,10 @@ class VehicleUpdate:
     route_id: str | None = None
     speed_mps: float | None = None
     bearing: float | None = None  # degrees
+    current_stop_sequence: int | None = None
+    current_stop_id: str | None = None
+    # GTFS-RT VehicleStopStatus by name: INCOMING_AT | STOPPED_AT | IN_TRANSIT_TO
+    current_status: str | None = None
     stop_time_updates: list[StopTimeUpdate] = field(default_factory=list)
 
 
