@@ -26,6 +26,10 @@ _TZ_MAP = {
     "E": "America/New_York",
 }
 
+# LastValTS is 12-hour with an AM/PM suffix ("8/2/2026 9:45:39 AM"); the Station*
+# sub-JSON dates are 24-hour zero-padded ("07/31/2026 08:25:00").
+_DATE_FORMATS = ("%m/%d/%Y %I:%M:%S %p", "%m/%d/%Y %H:%M:%S")
+
 
 async def _get_crypto_initializers(client: httpx.AsyncClient) -> dict:
     global _crypto_cache
@@ -61,8 +65,13 @@ def _parse_date(ugly_date: str | None, tz: str) -> datetime | None:
     if not ugly_date:
         return None
     zone = ZoneInfo(_TZ_MAP.get(tz.upper(), "America/New_York"))
-    local = datetime.strptime(ugly_date, "%m/%d/%Y %H:%M:%S").replace(tzinfo=zone)
-    return local.astimezone(ZoneInfo("UTC"))
+    for fmt in _DATE_FORMATS:
+        try:
+            local = datetime.strptime(ugly_date, fmt).replace(tzinfo=zone)
+        except ValueError:
+            continue
+        return local.astimezone(ZoneInfo("UTC"))
+    raise ValueError(f"unrecognized date format: {ugly_date!r}")
 
 
 def _parse_stop(station_json: str, tz_hint: str = "E") -> TrainStop | None:
@@ -155,7 +164,7 @@ def _parse_feature(feature: dict) -> Train | None:
         heading=str(props.get("Heading", "")),
         lat=lat,
         lon=lon,
-        speed_mph=float(props.get("Speed") or 0),
+        speed_mph=float(props.get("Velocity") or 0),
         amtrak_id=str(props.get("ID", "")),
         timestamp=timestamp,
         stops=stops,
