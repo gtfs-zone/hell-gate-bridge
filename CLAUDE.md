@@ -62,7 +62,8 @@ Downstream/adjacent work lives in other repos (do not edit from here):
 ## Rules
 
 - Never include `Co-Authored-By: Claude ...` trailers in commit messages.
-- Only read files within this repo's directory. Do not access parent directories or sibling repos.
+- Cross-repo work is allowed: sibling gtfs.zone repos live under the same parent
+  directory and may be read and edited when a change spans repos.
 
 <!-- Add project-specific rules and invariants here -->
 
