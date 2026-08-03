@@ -32,6 +32,8 @@ class BuswhereObservation:
     timestamp: int  # epoch seconds (device fix time)
     # buswhere stop_id (str) -> seconds until the bus next reaches that stop.
     stop_eta: dict[str, float]
+    # buswhere's own per-bus identifier (e.g. "C5"), when the feed carries one.
+    vehicle_name: str | None = None
 
 
 async def fetch_route(
@@ -77,4 +79,5 @@ async def fetch_route(
         lon=float(lon),
         timestamp=int(device.get("updated_at", 0)),
         stop_eta=stop_eta,
+        vehicle_name=device.get("name"),
     )

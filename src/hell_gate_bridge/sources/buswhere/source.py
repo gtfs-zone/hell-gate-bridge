@@ -113,6 +113,14 @@ class BuswhereSource(Source):
 
         return VehicleUpdate(
             tracker_id=self._config.vehicle_id,
+            # One credential can run several concurrent buswhere devices
+            # (e.g. the shopping shuttle alongside an Albany-Commuter run), so
+            # the tracker nickname alone isn't unique per vehicle. trip_id +
+            # start_date disambiguates concurrent trip instances, same as
+            # Amtrak; the label falls back to the route slug when buswhere
+            # doesn't report a device name.
+            vehicle_id=f"{trip_id}:{start_date}" if start_date else trip_id,
+            vehicle_label=obs.vehicle_name or slug,
             trip_id=trip_id,
             start_date=start_date,
             timestamp=obs.timestamp,

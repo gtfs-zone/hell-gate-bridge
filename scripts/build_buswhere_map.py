@@ -80,6 +80,16 @@ MAPPING_PATH = (
 WARN_METERS = 90.0
 REJECT_METERS = 300.0
 
+# buswhere reports the same lat/lon for both roadside platforms of this
+# divided-highway stop (Rt. 9 in Valatie), so nearest-distance can't tell them
+# apart — it picks the closer GTFS stop for both, leaving the other completely
+# unmapped. The GTFS splits this stop by direction and buswhere's own address
+# text does too, so match on that first.
+STOP_ADDRESS_OVERRIDES: dict[str, str] = {
+    "2939 US-9": "STOP-ad8f5dff-5acc-4af6-b1dd-7d567ed433ab",
+    "2939 Rt. 9 - Valatie": "STOP-9b2779a3-6fd5-492c-8304-cb4a5f3ffd7f",
+}
+
 
 def _haversine_m(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
     r = 6_371_000.0
@@ -194,6 +204,14 @@ def _map_route(
     matched = 0
     for s in stops:
         bid = str(s["id"])
+        addr = s.get("address", "")
+        override = STOP_ADDRESS_OVERRIDES.get(addr)
+        if override is not None:
+            gname = next((g[1] for g in gtfs_stops if g[0] == override), "?")
+            print(f"  {bid} {addr!r:32} -> {override} {gname!r} (override)")
+            mapping["stops"][bid] = override
+            matched += 1
+            continue
         blat, blon = float(s["lat"]), float(s["lon"])
         gid, gname, dist = min(
             ((g[0], g[1], _haversine_m(blat, blon, g[2], g[3])) for g in gtfs_stops),
@@ -204,7 +222,6 @@ def _map_route(
             flag = " !! REJECTED (too far)"
         elif dist > WARN_METERS:
             flag = " ! review"
-        addr = s.get("address", "")
         print(f"  {bid} {addr!r:32} -> {gid} {gname!r} ({dist:.0f} m){flag}")
         if dist <= REJECT_METERS:
             mapping["stops"][bid] = gid

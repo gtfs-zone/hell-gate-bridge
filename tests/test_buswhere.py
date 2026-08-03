@@ -142,6 +142,32 @@ def test_buswhere_build_loop_keeps_upcoming_only(tmp_path, monkeypatch):
     assert by_seq[3].arrival_delay == 0
 
 
+def test_buswhere_build_sets_per_vehicle_id(tmp_path, monkeypatch):
+    # Distinguishes concurrent devices sharing one tracker credential (e.g. the
+    # shopping shuttle running alongside an Albany-Commuter bus).
+    src = _buswhere_source(tmp_path, monkeypatch)
+    now = datetime(2024, 1, 2, 8, 25, tzinfo=TZ)
+    obs = BuswhereObservation(
+        lat=42.25,
+        lon=-73.79,
+        timestamp=int(now.timestamp()),
+        stop_eta={"bwC": 900},
+        vehicle_name="C5",
+    )
+
+    v = src._build("testslug", obs, now)
+    assert v is not None
+    assert v.vehicle_id == "LOOP:20240102"
+    assert v.vehicle_label == "C5"
+
+    obs_unnamed = BuswhereObservation(
+        lat=42.25, lon=-73.79, timestamp=int(now.timestamp()), stop_eta={"bwC": 900}
+    )
+    v2 = src._build("testslug", obs_unnamed, now)
+    assert v2 is not None
+    assert v2.vehicle_label == "testslug"
+
+
 def test_buswhere_build_current_stop_is_next_visit(tmp_path, monkeypatch):
     # Same 08:25 fix as above: the first surviving update (C, seq 2) is the stop
     # the bus is running towards, and an ETA feed can only claim IN_TRANSIT_TO.
