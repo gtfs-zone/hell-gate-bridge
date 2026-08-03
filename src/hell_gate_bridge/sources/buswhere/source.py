@@ -63,7 +63,11 @@ class BuswhereSource(Source):
         self._resolver = GtfsResolver(gtfs_path)
 
     def _build(
-        self, slug: str, obs: BuswhereObservation, now: datetime
+        self,
+        slug: str,
+        obs: BuswhereObservation,
+        now: datetime,
+        unmapped_stops: set[str] | None = None,
     ) -> VehicleUpdate | None:
         resolver = self._resolver
         assert resolver is not None
@@ -82,6 +86,8 @@ class BuswhereSource(Source):
         for bid, eta_seconds in obs.stop_eta.items():
             gtfs_stop = self._stops.get(bid)
             if gtfs_stop is None:
+                if unmapped_stops is not None:
+                    unmapped_stops.add(bid)
                 continue  # buswhere stop with no GTFS counterpart
             if gtfs_stop not in eta_by_stop or eta_seconds < eta_by_stop[gtfs_stop]:
                 eta_by_stop[gtfs_stop] = eta_seconds
@@ -141,6 +147,7 @@ class BuswhereSource(Source):
 
         updates: list[VehicleUpdate] = []
         unresolved: list[str] = []
+        unmapped_stops: set[str] = set()
         for slug in self._slugs:
             try:
                 obs = await fetch_route(http, slug)
@@ -156,7 +163,7 @@ class BuswhereSource(Source):
                 if obs.timestamp
                 else datetime.now(UTC)
             )
-            update = self._build(slug, obs, now)
+            update = self._build(slug, obs, now, unmapped_stops)
             if update is None:
                 unresolved.append(slug)
                 continue
@@ -167,5 +174,11 @@ class BuswhereSource(Source):
                 "buswhere: %d route(s) running but no scheduled trip matched (%s)",
                 len(unresolved),
                 ", ".join(unresolved),
+            )
+        if unmapped_stops:
+            log.warning(
+                "buswhere: %d stop id(s) with no GTFS mapping this cycle (%s)",
+                len(unmapped_stops),
+                ", ".join(sorted(unmapped_stops)),
             )
         return updates
