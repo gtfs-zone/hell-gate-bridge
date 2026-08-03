@@ -61,7 +61,9 @@ async def _alerts_poll_loop(
     while True:
         try:
             html = await fetch_alert_html(http)
-            alerts = build_alerts(html, source.resolver, config.amtrak_agency_id)
+            alerts = await build_alerts(
+                html, source.resolver, config.amtrak_agency_id, http
+            )
             count = await publish_alerts(config, http, alerts)
             log.info("alerts: %d scraped → %d synced", len(alerts), count)
         except Exception as exc:

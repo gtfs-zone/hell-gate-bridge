@@ -10,7 +10,9 @@ nothing just means the next sync publishes zero alerts (see `build_alerts`).
 
 from __future__ import annotations
 
+import asyncio
 import calendar
+import logging
 import re
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -23,8 +25,11 @@ if TYPE_CHECKING:
     from zoneinfo import ZoneInfo
 
     import httpx
+    from bs4 import Tag
 
     from hell_gate_bridge.gtfs import GtfsResolver
+
+log = logging.getLogger(__name__)
 
 URL = "https://www.amtrak.com/service-alerts-and-notices"
 
@@ -73,6 +78,79 @@ async def fetch_alert_html(http: httpx.AsyncClient) -> str:
     resp = await http.get(URL, headers=_HEADERS)
     resp.raise_for_status()
     return resp.text
+
+
+async def fetch_alert_detail_html(http: httpx.AsyncClient, url: str) -> str:
+    resp = await http.get(url, headers=_HEADERS)
+    resp.raise_for_status()
+    return resp.text
+
+
+_DETAIL_META_CLASSES = (
+    "alerts-details-minimum__container_title",
+    "alerts-details-minimum__container_date",
+)
+
+
+def _render_list(ul: Tag, depth: int) -> list[str]:
+    lines = []
+    for child in ul.find_all(("li", "p"), recursive=False):
+        if child.name == "p":
+            # Amtrak's markup occasionally puts a stray <p> directly inside a
+            # <ul> (invalid HTML, but html.parser keeps it as-is) — surface it
+            # rather than silently dropping it.
+            text = child.get_text(" ", strip=True)
+            if text:
+                lines.append(f"{'  ' * depth}{text}")
+            continue
+        li = child
+        nested = li.find("ul")
+        # li's own text, excluding any nested <ul> (which is rendered separately
+        # below) so a parent item's line doesn't duplicate its children's text.
+        own_text = "".join(str(c) for c in li.children if not (nested and c is nested))
+        own = BeautifulSoup(own_text, "html.parser").get_text(" ", strip=True)
+        if own:
+            lines.append(f"{'  ' * depth}- {own}")
+        if nested:
+            lines.extend(_render_list(nested, depth + 1))
+    return lines
+
+
+def parse_alert_detail(html: str) -> str | None:
+    """Extract an alert detail page's body as plain text.
+
+    The title (`h1`) and effective-date span are dropped since both are
+    already captured from the alerts list page; everything else in the
+    container — paragraphs, headings, nested bullet lists — is kept.
+    """
+    soup = BeautifulSoup(html, "html.parser")
+    container = soup.find("div", class_="alerts-details-minimum__container")
+    if container is None:
+        return None
+
+    for el in container.find_all(class_=_DETAIL_META_CLASSES):
+        el.decompose()
+
+    lines: list[str] = []
+    for child in container.find_all(("p", "h3", "ul"), recursive=False):
+        if child.name == "ul":
+            lines.extend(_render_list(child, 0))
+        else:
+            text = child.get_text(" ", strip=True)
+            if text:
+                lines.append(text)
+
+    body = "\n".join(lines).strip()
+    return body or None
+
+
+def _build_description(summary: str, detail_body: str | None, url: str | None) -> str:
+    if detail_body:
+        return f"{summary}\n\n{detail_body}" if summary else detail_body
+    if url:
+        note = f"(Full details unavailable — see {url})"
+        return f"{summary}\n\n{note}" if summary else note
+    return summary
 
 
 def parse_passenger_advisories(soup: BeautifulSoup) -> list[dict]:
@@ -212,31 +290,60 @@ def _route_entities(
     return [AlertEntity(agency_id=agency_id)]
 
 
-def build_alerts(html: str, resolver: GtfsResolver, agency_id: str) -> list[Alert]:
+async def _no_detail() -> str | None:
+    return None
+
+
+async def _fetch_detail_body(http: httpx.AsyncClient, url: str) -> str | None:
+    try:
+        html = await fetch_alert_detail_html(http, url)
+    except Exception as exc:
+        log.warning("alert detail fetch failed for %s: %r", url, exc)
+        return None
+    body = parse_alert_detail(html)
+    if body is None:
+        log.warning("alert detail parse found no content for %s", url)
+    return body
+
+
+async def build_alerts(
+    html: str, resolver: GtfsResolver, agency_id: str, http: httpx.AsyncClient
+) -> list[Alert]:
     soup = BeautifulSoup(html, "html.parser")
     tz = resolver.timezone
+
+    advisories = [a for a in parse_passenger_advisories(soup) if a["title"]]
+    notices = [n for n in parse_station_notices(soup) if n["title"]]
+
+    advisory_urls = [urljoin(URL, a["link"]) if a["link"] else None for a in advisories]
+    notice_urls = [urljoin(URL, n["link"]) if n["link"] else None for n in notices]
+    all_urls = advisory_urls + notice_urls
+
+    detail_bodies = await asyncio.gather(
+        *(_fetch_detail_body(http, url) if url else _no_detail() for url in all_urls)
+    )
+    advisory_bodies = detail_bodies[: len(advisories)]
+    notice_bodies = detail_bodies[len(advisories) :]
+
     alerts: list[Alert] = []
 
-    for advisory in parse_passenger_advisories(soup):
-        if not advisory["title"]:
-            continue
+    for advisory, url, body in zip(
+        advisories, advisory_urls, advisory_bodies, strict=True
+    ):
         start, end = _parse_effective_window(advisory["effective"], tz)
+        summary = f"{advisory['tag']}: {advisory['effective']}".strip(": ")
         alerts.append(
             Alert(
                 header_text=advisory["title"],
-                description_text=(
-                    f"{advisory['tag']}: {advisory['effective']}".strip(": ")
-                ),
-                url=urljoin(URL, advisory["link"]) if advisory["link"] else None,
+                description_text=_build_description(summary, body, url),
+                url=url,
                 active_period_start=start,
                 active_period_end=end,
                 entities=_route_entities(advisory["routes"], resolver, agency_id),
             )
         )
 
-    for notice in parse_station_notices(soup):
-        if not notice["title"]:
-            continue
+    for notice, url, body in zip(notices, notice_urls, notice_bodies, strict=True):
         start, end = _parse_effective_window(notice["effective"], tz)
         code_match = _STATION_CODE_RE.search(notice["station"])
         entities = (
@@ -244,13 +351,12 @@ def build_alerts(html: str, resolver: GtfsResolver, agency_id: str) -> list[Aler
             if code_match
             else [AlertEntity(agency_id=agency_id)]
         )
+        summary = f"{notice['station']}: {notice['effective']}".strip(": ")
         alerts.append(
             Alert(
                 header_text=notice["title"],
-                description_text=f"{notice['station']}: {notice['effective']}".strip(
-                    ": "
-                ),
-                url=urljoin(URL, notice["link"]) if notice["link"] else None,
+                description_text=_build_description(summary, body, url),
+                url=url,
                 active_period_start=start,
                 active_period_end=end,
                 entities=entities,
