@@ -40,6 +40,21 @@ def _parse_gtfs_time(s: str) -> int:
     return int(h) * 3600 + int(m) * 60 + int(sec)
 
 
+def _normalize_route_name(name: str) -> str:
+    """Casefold, collapse whitespace (incl. NBSP/narrow-NBSP), drop an "amtrak" prefix.
+
+    Amtrak's scraped alert page and its own GTFS route names disagree on
+    exactly this kind of cosmetic noise (e.g. "Amtrak Hartford Line" on the
+    alerts page vs. "Hartford Line" in routes.txt, or a narrow no-break space
+    between two route names run together).
+    """
+    normalized = " ".join(name.replace("\u202f", " ").replace("\xa0", " ").split())
+    normalized = normalized.casefold()
+    if normalized.startswith("amtrak "):
+        normalized = normalized[len("amtrak ") :]
+    return normalized
+
+
 @dataclass
 class _CalendarRow:
     days_bitmask: int  # bit i = weekday i (0=Mon…6=Sun), matching date.weekday()
@@ -62,6 +77,10 @@ class GtfsResolver:
         # trip_id -> GTFS route_id, so the feed can carry the static route_id
         # (which joins to routes.txt) rather than Amtrak's display route name.
         self._trip_routes: dict[str, str] = {}
+        # normalized route name (long or short) -> route_id, for matching
+        # Amtrak's scraped alert route names (e.g. "Amtrak Hartford Line")
+        # against the static feed.
+        self._route_names: dict[str, str] = {}
         # trip_id -> {stop_id: stop_sequence}. Amtrak GTFS stop_id == station code
         # (CHI, NYP, …), so this doubles as the station-code validity check when
         # building trip-updates.
@@ -123,6 +142,16 @@ class GtfsResolver:
                 ] = int(row["exception_type"])
         except (KeyError, OSError, ValueError) as exc:
             log.debug("no calendar_dates.txt (%s)", exc)
+
+        try:
+            for row in csv.DictReader(io.StringIO(self._read_file(path, "routes.txt"))):
+                route_id = row["route_id"]
+                for name in (row.get("route_long_name"), row.get("route_short_name")):
+                    normalized = _normalize_route_name(name) if name else ""
+                    if normalized:
+                        self._route_names.setdefault(normalized, route_id)
+        except (KeyError, OSError) as exc:
+            log.warning("no routes.txt (%s), route-name lookup disabled", exc)
 
         for row in csv.DictReader(io.StringIO(self._read_file(path, "trips.txt"))):
             trip_id = row["trip_id"]
@@ -189,6 +218,26 @@ class GtfsResolver:
     def route_for(self, trip_id: str) -> str | None:
         """GTFS route_id for a resolved trip; None if unknown."""
         return self._trip_routes.get(trip_id)
+
+    def route_id_for_name(self, name: str) -> str | None:
+        """Best-effort match of a display route name to a GTFS route_id.
+
+        For mapping scraped alert route names (e.g. "Amtrak Hartford Line")
+        onto routes.txt, which the alerts page and the static feed don't
+        always spell identically. Tries an exact normalized match first, then
+        falls back to substring matching in either direction. None if nothing
+        matches closely enough to trust.
+        """
+        normalized = _normalize_route_name(name)
+        if not normalized:
+            return None
+        exact = self._route_names.get(normalized)
+        if exact is not None:
+            return exact
+        for candidate_name, route_id in self._route_names.items():
+            if normalized in candidate_name or candidate_name in normalized:
+                return route_id
+        return None
 
     def trip_schedule(
         self, trip_id: str, start_date: str

@@ -15,6 +15,7 @@ import httpx
 
 if TYPE_CHECKING:
     from hell_gate_bridge.config import Config
+    from hell_gate_bridge.sources.amtrak.alerts import Alert
     from hell_gate_bridge.sources.base import StopTimeUpdate, VehicleUpdate
 
 log = logging.getLogger(__name__)
@@ -118,3 +119,58 @@ async def publish(
             log.error("trip-update POST failed for %s: %r", v.trip_id, exc)
 
     return positions, trip_updates
+
+
+def _alert_body(a: Alert) -> dict[str, object]:
+    body: dict[str, object] = {
+        "header_text": a.header_text,
+        "description_text": a.description_text,
+        "entities": [
+            {
+                k: v
+                for k, v in (
+                    ("agency_id", e.agency_id),
+                    ("route_id", e.route_id),
+                    ("stop_id", e.stop_id),
+                )
+                if v is not None
+            }
+            for e in a.entities
+        ],
+    }
+    if a.url is not None:
+        body["url"] = a.url
+    if a.active_period_start is not None:
+        body["active_period_start"] = a.active_period_start
+    if a.active_period_end is not None:
+        body["active_period_end"] = a.active_period_end
+    return body
+
+
+async def publish_alerts(
+    config: Config, http: httpx.AsyncClient, alerts: list[Alert]
+) -> int:
+    """POST a full-replace sync of the current alert set. Returns the count sent.
+
+    Unlike `publish`, this is one batch call — cafe-car's `/ingest/alerts`
+    replaces the producer's entire alert set in one transaction, so a stale
+    alert (removed from amtrak.com) disappears on the next sync without any
+    separate expiry logic here.
+    """
+    if not config.ingest_url:
+        log.error("CAFE_CAR_INGEST_URL not set — cannot publish alerts")
+        return 0
+
+    base = config.ingest_url.rstrip("/")
+    headers = {"Authorization": f"Bearer {config.ingest_token}"}
+    body = {
+        "tracker_id": config.vehicle_id,
+        "alerts": [_alert_body(a) for a in alerts],
+    }
+    try:
+        resp = await http.post(f"{base}/ingest/alerts", json=body, headers=headers)
+        resp.raise_for_status()
+    except httpx.HTTPError as exc:
+        log.error("alerts sync POST failed: %r", exc)
+        return 0
+    return len(alerts)

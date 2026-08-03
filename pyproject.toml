@@ -6,6 +6,7 @@ description = "Sidecar worker that polls the Amtrak live tracker and POSTs posit
 dependencies = [
     "httpx>=0.28",
     "cryptography>=44",
+    "beautifulsoup4>=4.15.0",
 ]
 
 [dependency-groups]

@@ -14,6 +14,16 @@ class Config:
         # container each.
         self.source: str = os.environ.get("SOURCE", "amtrak").lower()
         self.poll_interval: int = int(os.environ.get("POLL_INTERVAL", "15"))
+        # amtrak-only: the rider-facing alerts page is a courtesy scrape of a
+        # marketing site, not a live tracker — poll it far less often than
+        # positions. GTFS-RT informed_entity fallback when a scraped route
+        # name doesn't match routes.txt (see GtfsResolver.route_id_for_name).
+        self.alerts_poll_interval: int = int(
+            os.environ.get("ALERTS_POLL_INTERVAL", "1800")
+        )
+        # "51" is Amtrak's own agency_id in its GTFS agency.txt (a numeric
+        # code there, not the "AMTK" short code riders might expect).
+        self.amtrak_agency_id: str = os.environ.get("AMTRAK_AGENCY_ID", "51")
         # httpx defaults to 5s; Amtrak's getTrainsData blob is slow and large, so
         # be explicit rather than inheriting a default that silently times out.
         self.http_timeout: float = float(os.environ.get("HTTP_TIMEOUT", "20"))

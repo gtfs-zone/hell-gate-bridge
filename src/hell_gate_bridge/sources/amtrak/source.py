@@ -147,6 +147,12 @@ class AmtrakSource(Source):
         )
         self._resolver = GtfsResolver(gtfs_path)
 
+    @property
+    def resolver(self) -> GtfsResolver:
+        """The GTFS index built in `startup()`, reused by the alerts poll loop."""
+        assert self._resolver is not None, "startup() must run before resolver"
+        return self._resolver
+
     async def fetch(self, http: httpx.AsyncClient) -> list[VehicleUpdate]:
         assert self._resolver is not None, "startup() must run before fetch()"
         resolver = self._resolver
