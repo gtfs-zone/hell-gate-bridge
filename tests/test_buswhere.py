@@ -142,9 +142,10 @@ def test_buswhere_build_loop_keeps_upcoming_only(tmp_path, monkeypatch):
     assert by_seq[3].arrival_delay == 0
 
 
-def test_buswhere_build_sets_per_vehicle_id(tmp_path, monkeypatch):
-    # Distinguishes concurrent devices sharing one tracker credential (e.g. the
-    # shopping shuttle running alongside an Albany-Commuter bus).
+def test_buswhere_build_labels_from_device_name(tmp_path, monkeypatch):
+    # buswhere's device name has no uniqueness guarantee (seen echoed across
+    # two routes at once), so it's display-only — cafe-car derives the actual
+    # unique VehicleDescriptor.id, hence no vehicle_id here.
     src = _buswhere_source(tmp_path, monkeypatch)
     now = datetime(2024, 1, 2, 8, 25, tzinfo=TZ)
     obs = BuswhereObservation(
@@ -157,7 +158,7 @@ def test_buswhere_build_sets_per_vehicle_id(tmp_path, monkeypatch):
 
     v = src._build("testslug", obs, now)
     assert v is not None
-    assert v.vehicle_id == "LOOP:20240102"
+    assert v.vehicle_id is None
     assert v.vehicle_label == "C5"
 
     obs_unnamed = BuswhereObservation(
