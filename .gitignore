@@ -11,7 +11,7 @@ __pycache__/
 dist/
 *.egg-info/
 
-# Local GTFS feeds/extracts pulled for inspection — fetch them, don't commit them.
+# Local GTFS feeds/extracts pulled for inspection: fetch them, don't commit them.
 *.zip
 gtfs-ex/
 *-gtfs-ex/

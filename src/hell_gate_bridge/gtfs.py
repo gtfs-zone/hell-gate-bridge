@@ -87,11 +87,11 @@ class GtfsResolver:
         self._trip_stops: dict[str, dict[str, int]] = {}
         # trip_id -> ordered [(stop_sequence, stop_id, arrival_secs)], agency-local
         # seconds-since-service-midnight. A list (not a dict) so loop routes,
-        # which visit the same stop twice, keep both occurrences — needed to place
+        # which visit the same stop twice, keep both occurrences, needed to place
         # a predicted arrival on the correct scheduled visit.
         self._trip_schedule: dict[str, list[tuple[int, str, int]]] = {}
         # stop_times.txt values are agency-local, so the service day must be
-        # anchored in the agency's zone — not UTC.
+        # anchored in the agency's zone, not UTC.
         self._tz: ZoneInfo = ZoneInfo("America/New_York")
         self._load(path)
 
@@ -264,7 +264,7 @@ class GtfsResolver:
         For providers that report a route but not a trip (buswhere): among trips
         on the route whose service is active, pick the one whose
         [first_dep, last_arr] window contains `now`. Trips on these routes run
-        back-to-back, so at most one is running — at a shared boundary second we
+        back-to-back, so at most one is running; at a shared boundary second we
         prefer the just-starting trip (latest window_start). Returns
         (trip_id, start_date) or None when nothing is scheduled to be running.
         """
@@ -305,7 +305,7 @@ class GtfsResolver:
     def resolve(
         self, train_num: str, now: datetime, origin: datetime | None = None
     ) -> tuple[str, str] | None:
-        """Resolve to (trip_id, start_date) — the GTFS-RT trip instance.
+        """Resolve to (trip_id, start_date), the GTFS-RT trip instance.
 
         Amtrak models a >24h daily train as one trip_id running every day, so
         several instances of that trip_id are en route at once. start_date

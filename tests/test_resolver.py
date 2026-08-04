@@ -2,7 +2,7 @@
 
 A multi-day train has several instances live at once, all sharing one train
 number. They must resolve to distinct GTFS trips by the service day they
-departed origin — otherwise they collapse onto one trip_id (and one Redis key
+departed origin, otherwise they collapse onto one trip_id (and one Redis key
 downstream), which is how live trains went missing.
 """
 
@@ -52,7 +52,7 @@ def test_origin_date_distinguishes_overlapping_instances(tmp_path):
     mon_origin = datetime(2024, 1, 1, 8, 0, tzinfo=TZ)
     tue_origin = datetime(2024, 1, 2, 8, 0, tzinfo=TZ)
 
-    # Distinct trip_id *and* distinct start_date — the pair is what keeps
+    # Distinct trip_id *and* distinct start_date: the pair is what keeps
     # concurrent instances from colliding downstream.
     assert resolver.resolve("5", now, origin=mon_origin) == ("T_MON", "20240101")
     assert resolver.resolve("5", now, origin=tue_origin) == ("T_TUE", "20240102")
@@ -87,7 +87,7 @@ def test_same_trip_id_split_by_start_date(tmp_path):
 
 def test_without_origin_still_resolves_to_a_trip(tmp_path):
     # With no origin the now-based fallback still returns a (trip_id, start_date)
-    # pair — no regression for producers that can't supply an origin.
+    # pair, no regression for producers that can't supply an origin.
     resolver = _make_resolver(tmp_path)
     now = datetime(2024, 1, 2, 10, 0, tzinfo=TZ)
 

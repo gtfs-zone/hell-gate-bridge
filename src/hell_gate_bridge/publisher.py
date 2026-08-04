@@ -1,7 +1,7 @@
 """Shared, provider-agnostic publish layer.
 
 Takes resolved `VehicleUpdate`s (from any `Source`) and POSTs them to cafe-car's
-ingest seam — positions to `/ingest/position`, per-stop predictions to
+ingest seam: positions to `/ingest/position`, per-stop predictions to
 `/ingest/trip-update`. Speed is metres/second and timestamps are epoch seconds,
 matching the `vehicle:*` contract cafe-car serves from.
 """
@@ -41,7 +41,7 @@ def _position_body(config: Config, v: VehicleUpdate) -> dict[str, object]:
         body["bearing"] = v.bearing
     if v.route_id is not None:
         body["route_id"] = v.route_id
-    # All three together or none — cafe-car rejects a status with no stop to
+    # All three together or none: cafe-car rejects a status with no stop to
     # describe. Sequence 0 is a real stop_sequence, so test against None.
     if v.current_stop_sequence is not None:
         body["current_stop_sequence"] = v.current_stop_sequence
@@ -74,7 +74,7 @@ async def publish(
 ) -> tuple[int, int]:
     """POST positions + trip-updates. Returns (positions, trip_updates) counts."""
     if not config.ingest_url:
-        log.error("CAFE_CAR_INGEST_URL not set — cannot publish")
+        log.error("CAFE_CAR_INGEST_URL not set, cannot publish")
         return 0, 0
 
     base = config.ingest_url.rstrip("/")
@@ -152,13 +152,13 @@ async def publish_alerts(
 ) -> int:
     """POST a full-replace sync of the current alert set. Returns the count sent.
 
-    Unlike `publish`, this is one batch call — cafe-car's `/ingest/alerts`
+    Unlike `publish`, this is one batch call: cafe-car's `/ingest/alerts`
     replaces the producer's entire alert set in one transaction, so a stale
     alert (removed from amtrak.com) disappears on the next sync without any
     separate expiry logic here.
     """
     if not config.ingest_url:
-        log.error("CAFE_CAR_INGEST_URL not set — cannot publish alerts")
+        log.error("CAFE_CAR_INGEST_URL not set, cannot publish alerts")
         return 0
 
     base = config.ingest_url.rstrip("/")

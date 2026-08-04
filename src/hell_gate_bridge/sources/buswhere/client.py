@@ -2,7 +2,7 @@
 
 buswhere serves a JSON snapshot per route at
 `/columbiacountyny/routes/{slug}?initial=true`. A dormant route redirects to the
-default route (so the response isn't the JSON we asked for) — we treat that, and
+default route (so the response isn't the JSON we asked for), and we treat that, and
 any inactive/suspended/vehicle-less route, as "nothing running".
 """
 

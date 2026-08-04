@@ -144,7 +144,7 @@ def test_buswhere_build_loop_keeps_upcoming_only(tmp_path, monkeypatch):
 
 def test_buswhere_build_labels_from_device_name(tmp_path, monkeypatch):
     # buswhere's device name has no uniqueness guarantee (seen echoed across
-    # two routes at once), so it's display-only — cafe-car derives the actual
+    # two routes at once), so it's display-only: cafe-car derives the actual
     # unique VehicleDescriptor.id, hence no vehicle_id here.
     src = _buswhere_source(tmp_path, monkeypatch)
     now = datetime(2024, 1, 2, 8, 25, tzinfo=TZ)

@@ -114,7 +114,7 @@ class BuswhereSource(Source):
         # The surviving updates are this trip's remaining visits, in schedule
         # order, so the first one is the stop the bus is running towards.
         # buswhere reports an ETA to every stop and nothing about arrival, so
-        # IN_TRANSIT_TO is all we can honestly claim — never STOPPED_AT.
+        # IN_TRANSIT_TO is all we can honestly claim, never STOPPED_AT.
         next_stop = stop_time_updates[0] if stop_time_updates else None
 
         return VehicleUpdate(

@@ -15,7 +15,7 @@ class Config:
         self.source: str = os.environ.get("SOURCE", "amtrak").lower()
         self.poll_interval: int = int(os.environ.get("POLL_INTERVAL", "15"))
         # amtrak-only: the rider-facing alerts page is a courtesy scrape of a
-        # marketing site, not a live tracker — poll it far less often than
+        # marketing site, not a live tracker, so poll it far less often than
         # positions. GTFS-RT informed_entity fallback when a scraped route
         # name doesn't match routes.txt (see GtfsResolver.route_id_for_name).
         self.alerts_poll_interval: int = int(
@@ -30,13 +30,13 @@ class Config:
         # cafe-car ingest seam (positions + trip-updates over HTTP). This is the
         # secret tracker credential: it must match a feed's Tracker.id so
         # cafe-car's `vehicle:{tracker_id}:*` scan finds the records. It is a
-        # per-feed credential, not a vehicle id — one credential can carry many
+        # per-feed credential, not a vehicle id: one credential can carry many
         # concurrent vehicles, each of which supplies its own public vehicle_id
         # (see AmtrakSource). The env var keeps its historical name.
         self.ingest_url: str | None = os.environ.get("CAFE_CAR_INGEST_URL")
         self.ingest_token: str | None = os.environ.get("INGEST_API_TOKEN")
         self.vehicle_id: str = os.environ.get("INGEST_VEHICLE_ID", "amtrakdriver")
-        # GTFS default follows the source — Amtrak's national feed vs. the
+        # GTFS default follows the source: Amtrak's national feed vs. the
         # Columbia County feed we control (not the one buswhere uses internally).
         default_gtfs = _COLUMBIA_GTFS if self.source == "buswhere" else _AMTRAK_GTFS
         self.gtfs_url: str = os.environ.get("GTFS_URL", default_gtfs)

@@ -46,7 +46,7 @@ def _heading_to_degrees(heading: str) -> int | None:
 
 
 def _origin_scheduled(train: Train) -> datetime | None:
-    """Scheduled datetime of the train's origin — its stops are origin-first."""
+    """Scheduled datetime of the train's origin; its stops are origin-first."""
     for stop in train.stops:
         dt = stop.departure.scheduled or stop.arrival.scheduled
         if dt is not None:
@@ -90,7 +90,7 @@ def _build_stop_time_updates(
         if arrival is None and departure is None:
             continue  # scheduled-only stop carries no realtime information
         update = StopTimeUpdate(stop_id=stop.station_code, stop_sequence=seq)
-        # Publish the absolute prediction *and* the delay against schedule —
+        # Publish the absolute prediction *and* the delay against schedule:
         # GTFS-RT allows both in one StopTimeEvent, and consumers need the delay
         # to show lateness without carrying the static schedule themselves.
         if arrival is not None:
@@ -111,11 +111,11 @@ def _current_stop(
     Reuses the per-stop statuses `client.py` already derives from Amtrak's
     postarr/postdep flags. A stop the train has arrived at but not departed is
     where it is standing; otherwise the single `enroute` stop is the one it is
-    running towards. The client guarantees these never coexist — it demotes
+    running towards. The client guarantees these never coexist; it demotes
     `enroute` to `scheduled` as soon as anything is `arrived`.
 
     None when the train has not started, has finished, or reports a station the
-    resolved trip does not carry — the same skip `_build_stop_time_updates`
+    resolved trip does not carry, the same skip `_build_stop_time_updates`
     makes. Nothing is inferred from position: an unplaceable train is published
     as unplaceable.
     """
@@ -177,7 +177,7 @@ class AmtrakSource(Source):
             updates.append(
                 VehicleUpdate(
                     tracker_id=config.vehicle_id,
-                    # train_num alone is not unique — a >24h daily train has
+                    # train_num alone is not unique: a >24h daily train has
                     # several concurrent instances of one train_num live at once,
                     # exactly what start_date disambiguates. Pair them for a
                     # unique, stable-per-run, rider-readable vehicle id; the label
@@ -204,7 +204,7 @@ class AmtrakSource(Source):
             )
 
         if unresolved:
-            # One line for the batch — this used to be one WARNING per train,
+            # One line for the batch; this used to be one WARNING per train,
             # which buried everything else in the log.
             log.warning(
                 "no trip_id for %d/%d trains (e.g. %s)",

@@ -7,13 +7,13 @@ coordinate (with a name-similarity tiebreak for stops that share coordinates)
 and writes `sources/buswhere/mapping.json`.
 
 buswhere only serves a route's HTML (with the embedded `stops` array) **while
-that route is active** — a dormant route 302-redirects to the default route. So
+that route is active** (a dormant route 302-redirects to the default route). So
 run this when the routes you care about are running (e.g. the Albany commuter in
 the morning); it MERGES into any existing mapping.json, so several runs across
 the day accrete the full map. Review the logged report before committing.
 
 `--watch` does that accreting for you: it parks on every route that isn't mapped
-yet — including unconfirmed candidate slugs — and captures each one the moment it
+yet, including unconfirmed candidate slugs, and captures each one the moment it
 wakes up, saving after every capture. Leave it running across a service day and
 it fills in the map on its own.
 
@@ -65,7 +65,7 @@ BUSWHERE_BASE = "https://buswhere.com/columbiacountyny/routes"
 # single Albany-Commuter route with eight weekday trips (A_AM 06:15, C_AM 07:00,
 # B_PM 14:30, D_PM 16:00, each NB/SB). That's fine: resolve_by_route picks the
 # trip by route + scheduled window, so every run slug maps to the one route_id.
-# Note the inconsistent separator — AM runs double the underscore, PM runs don't.
+# Note the inconsistent separator: AM runs double the underscore, PM runs don't.
 ROUTES: dict[str, str] = {
     "shopping_shuttle": "Shopping",
     "hudson__albany_c__am": "Albany-Commuter",
@@ -73,7 +73,7 @@ ROUTES: dict[str, str] = {
     "chatham": "Chatham-Hudson",
 }
 
-# Slugs we believe exist but have never seen serve stops — the GTFS has A_AM and
+# Slugs we believe exist but have never seen serve stops. The GTFS has A_AM and
 # D_PM runs, and the confirmed slugs imply this spelling. --watch polls them; the
 # first one that answers is promoted into mapping.json's routes automatically, so
 # a guess that's wrong just stays dormant forever and costs nothing.
@@ -92,13 +92,13 @@ REVIEW_PATH = Path(__file__).resolve().parent / "buswhere_map_review.json"
 
 # Nearest-stop match distance: warn above this (needs a human look), reject above
 # the hard cap (almost certainly a wrong match). Columbia County stops are blocks
-# apart, so even the loose cap is unambiguous — except for the handful of GTFS
+# apart, so even the loose cap is unambiguous, except for the handful of GTFS
 # stops that share (near-)identical coordinates under different names; those are
 # handled by the cluster/fuzzy-name tiebreak below, not this threshold.
 WARN_METERS = 90.0
 REJECT_METERS = 300.0
 
-# Within this, distance alone is trusted (no name check) — GPS jitter, not a
+# Within this, distance alone is trusted (no name check): GPS jitter, not a
 # different physical stop. Beyond it, a single nearest candidate ALSO needs a
 # decent name match to auto-accept; otherwise it's the "Greenport" trap: one
 # generic buswhere address covering several distinct, spread-out GTFS stops,
@@ -120,7 +120,7 @@ MIN_FUZZY_MARGIN = 0.1
 
 # buswhere reports the same lat/lon for both roadside platforms of this
 # divided-highway stop (Rt. 9 in Valatie), so nearest-distance can't tell them
-# apart — it picks the closer GTFS stop for both, leaving the other completely
+# apart, so it picks the closer GTFS stop for both, leaving the other completely
 # unmapped. The GTFS splits this stop by direction and buswhere's own address
 # text does too, so match on that first.
 STOP_ADDRESS_OVERRIDES: dict[str, str] = {
@@ -143,7 +143,7 @@ class MatchResult:
     stop_id: str | None = None
     candidates: list[Candidate] = field(default_factory=list)
     reason: str = ""  # "REJECT" | "TIE", set when outcome == "review"
-    warn: bool = False  # matched, but past WARN_METERS — still worth a human glance
+    warn: bool = False  # matched, but past WARN_METERS, still worth a human glance
 
 
 def _haversine_m(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
@@ -300,7 +300,7 @@ def _prune_stale_resolutions(review: dict[str, dict], gtfs_stop_ids: set[str]) -
     for bid in stale:
         log.warning(
             "review: resolved mapping for %s points at a stop_id no longer in "
-            "the GTFS (%s) — treating as unresolved again",
+            "the GTFS (%s), treating as unresolved again",
             bid,
             review["resolved"][bid].get("stop_id"),
         )
@@ -369,7 +369,7 @@ def _match_stop(
             candidates=candidates,
             warn=nearest.dist_m > WARN_METERS,
         )
-    # Close enough to be plausible, but the name doesn't back it up — likely a
+    # Close enough to be plausible, but the name doesn't back it up: likely a
     # generic buswhere address (e.g. "Greenport") shared across several
     # distinct GTFS stops, only one of which this actually is.
     return MatchResult(outcome="review", candidates=candidates, reason="LOW_CONFIDENCE")
@@ -382,7 +382,7 @@ def _search_gtfs_stops(
     gtfs_stops: list[tuple[str, str, float, float]],
     top_n: int = 10,
 ) -> list[Candidate]:
-    """Every GTFS stop ranked by name similarity to `query`, not by distance —
+    """Every GTFS stop ranked by name similarity to `query`, not by distance,
     for finding a correct-but-far-away match the nearest-N list missed (e.g.
     buswhere's generic "Greenport" address covering several distinct, spread
     out GTFS stops, only one of which is actually named "Greenport")."""
@@ -423,7 +423,7 @@ def _prompt_interactive(
         print(f"\nbuswhere stop {bid} ({addr!r})")
         for i, c in enumerate(current, start=1):
             print(
-                f"  [{i}] {c.stop_id} {c.stop_name!r} — "
+                f"  [{i}] {c.stop_id} {c.stop_name!r} - "
                 f"{c.dist_m:.0f}m, fuzzy {c.fuzzy_score:.2f}"
             )
         print(
@@ -587,7 +587,7 @@ def _coverage_report(
             )
         if scheduled:
             log.info(
-                "coverage: %s — %d/%d scheduled stops mapped%s",
+                "coverage: %s: %d/%d scheduled stops mapped%s",
                 route_id,
                 len(scheduled) - len(missing),
                 len(scheduled),
@@ -611,7 +611,7 @@ def _watch(
 
     Routes go live on their own schedule and there's no calendar to consult, so
     the only reliable way to map them all is to keep asking. Each capture is
-    written immediately — Ctrl-C after six hours keeps everything caught so far.
+    written immediately, so Ctrl-C after six hours keeps everything caught so far.
     Returns the slugs still dormant when the loop ends.
     """
     pending = list(slugs)
@@ -643,7 +643,7 @@ def _watch(
                 break
             nap = interval if deadline is None else min(interval, deadline - now)
             log.info(
-                "[watch] cycle %d: waiting on %s — next check in %.0f min "
+                "[watch] cycle %d: waiting on %s, next check in %.0f min "
                 "(Ctrl-C to stop)",
                 cycle,
                 ", ".join(pending),
@@ -651,7 +651,7 @@ def _watch(
             )
             time.sleep(nap)
     except KeyboardInterrupt:
-        log.info("[watch] interrupted — everything captured so far is saved")
+        log.info("[watch] interrupted; everything captured so far is saved")
     return pending
 
 
@@ -785,7 +785,7 @@ def main() -> int:
         log.info("still unmapped/dormant: %s", ", ".join(dormant))
     if pending_count:
         log.error(
-            "%d stop(s) awaiting manual review in %s — run with --interactive to "
+            "%d stop(s) awaiting manual review in %s; run with --interactive to "
             "resolve them",
             pending_count,
             args.review_file,

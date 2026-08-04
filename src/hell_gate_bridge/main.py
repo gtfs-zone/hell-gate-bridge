@@ -28,7 +28,7 @@ async def _poll_loop(config: Config, source: Source, http: httpx.AsyncClient) ->
         try:
             updates = await source.fetch(http)
             positions, trip_updates = await publish(config, http, updates)
-            # Report what actually shipped, not what upstream returned — vehicles
+            # Report what actually shipped, not what upstream returned: vehicles
             # whose trip_id won't resolve are dropped by the source.
             log.info(
                 "%s: %d vehicles → %d positions, %d trip-updates published",
@@ -49,7 +49,7 @@ async def _alerts_poll_loop(
 ) -> None:
     """Scrape+sync amtrak.com's rider alerts page, on its own slower cadence.
 
-    A courtesy scrape of a marketing site, not a live tracker — no reason to
+    A courtesy scrape of a marketing site, not a live tracker, so no reason to
     hit it as often as `_poll_loop` hits the live train feed.
     """
     from hell_gate_bridge.sources.amtrak import AmtrakSource

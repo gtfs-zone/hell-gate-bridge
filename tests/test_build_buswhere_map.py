@@ -1,5 +1,5 @@
 """build_buswhere_map.py: HTML stop extraction, fuzzy tiebreak, review-file
-round-trip, coverage report, and exit-code behavior — all offline."""
+round-trip, coverage report, and exit-code behavior, all offline."""
 
 import importlib.util
 import io
@@ -58,7 +58,7 @@ def test_extract_stops_picks_longest_valid_array():
 
 
 def test_fuzzy_score_matches_real_duplicate_pair():
-    # "Front & Warren St." vs "N Front St & Warren St" — a real duplicate-
+    # "Front & Warren St." vs "N Front St & Warren St": a real duplicate-
     # coordinate pair in the Columbia County GTFS.
     assert bbm._fuzzy_score("Front & Warren St.", "Front & Warren St.") > 0.9
     assert bbm._fuzzy_score(
@@ -130,7 +130,7 @@ def test_match_stop_within_warn_is_not_flagged():
 def test_match_stop_close_but_name_mismatch_goes_to_review():
     # The real "Greenport" bug: a single dominant nearest candidate 116m away
     # whose name bears no resemblance to buswhere's generic address must NOT
-    # auto-accept just because it's under REJECT_METERS — needs a name match
+    # auto-accept just because it's under REJECT_METERS; needs a name match
     # too, or it goes to review instead of silently mapping the wrong stop.
     stops = [("STOP-X", "Fairview Plaza", 42.2570, -73.7650)]
     result = bbm._match_stop(42.2580, -73.7650, "Greenport", stops)

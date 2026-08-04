@@ -1,7 +1,7 @@
 """Scrape amtrak.com/service-alerts-and-notices into neutral `Alert`s.
 
-Amtrak's rider-facing alerts page — not the encrypted getTrainsData feed
-`client.py` talks to — is a normal server-rendered page, so this is a plain
+Amtrak's rider-facing alerts page (not the encrypted getTrainsData feed
+`client.py` talks to) is a normal server-rendered page, so this is a plain
 HTML scrape rather than anything cryptographic. It has no API, so the
 selectors here are inherently brittle against a site redesign; that risk is
 accepted rather than engineered around, since a scrape that silently returns
@@ -97,7 +97,7 @@ def _render_list(ul: Tag, depth: int) -> list[str]:
     for child in ul.find_all(("li", "p"), recursive=False):
         if child.name == "p":
             # Amtrak's markup occasionally puts a stray <p> directly inside a
-            # <ul> (invalid HTML, but html.parser keeps it as-is) — surface it
+            # <ul> (invalid HTML, but html.parser keeps it as-is), so surface it
             # rather than silently dropping it.
             text = child.get_text(" ", strip=True)
             if text:
@@ -121,7 +121,7 @@ def parse_alert_detail(html: str) -> str | None:
 
     The title (`h1`) and effective-date span are dropped since both are
     already captured from the alerts list page; everything else in the
-    container — paragraphs, headings, nested bullet lists — is kept.
+    container (paragraphs, headings, nested bullet lists) is kept.
     """
     soup = BeautifulSoup(html, "html.parser")
     container = soup.find("div", class_="alerts-details-minimum__container")
@@ -148,7 +148,7 @@ def _build_description(summary: str, detail_body: str | None, url: str | None) -
     if detail_body:
         return f"{summary}\n\n{detail_body}" if summary else detail_body
     if url:
-        note = f"(Full details unavailable — see {url})"
+        note = f"(Full details unavailable, see {url})"
         return f"{summary}\n\n{note}" if summary else note
     return summary
 
@@ -220,7 +220,7 @@ def _parse_effective_window(text: str, tz: ZoneInfo) -> tuple[int | None, int | 
     ("Effective Thursday, August 6 - Monday, August 10, 2026"). Recurring
     weekly patterns ("Monday - Friday"), "Effective Immediately", and
     multi-range strings ("... and ...") aren't representable as one
-    active_period, so they fall back to (None, None) — GTFS-RT then treats
+    active_period, so they fall back to (None, None): GTFS-RT then treats
     the alert as always active, and the raw text is still visible in the
     alert's description.
     """
@@ -285,7 +285,7 @@ def _route_entities(
     }
     if route_ids:
         return [AlertEntity(route_id=rid) for rid in sorted(route_ids)]
-    # No route in this advisory matched the static feed — publish it anyway,
+    # No route in this advisory matched the static feed, so publish it anyway,
     # scoped to the whole agency, rather than dropping it silently.
     return [AlertEntity(agency_id=agency_id)]
 

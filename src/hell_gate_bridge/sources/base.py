@@ -4,7 +4,7 @@ A `Source` owns everything provider-specific: fetching the upstream feed and
 resolving each observation to a GTFS `(trip_id, start_date)` plus per-stop
 predictions. It yields a neutral `VehicleUpdate`, so the publisher and poll loop
 stay provider-agnostic. cafe-car's ingest requires an explicit `trip_id`, so a
-source only emits vehicles it could resolve — unresolved ones are the source's
+source only emits vehicles it could resolve; unresolved ones are the source's
 own concern (it has the context to log them).
 """
 
@@ -34,12 +34,12 @@ class StopTimeUpdate:
 class VehicleUpdate:
     """One resolved vehicle: position + trip instance + per-stop predictions.
 
-    `trip_id` is always set — a source resolves the trip itself rather than
+    `trip_id` is always set: a source resolves the trip itself rather than
     trusting the device, so cafe-car never has to. `start_date` disambiguates
     concurrent instances of the same trip_id.
 
     `tracker_id` is the secret cafe-car credential (Tracker.id) that selects the
-    feed namespace — it is shared by every vehicle a source publishes. The public
+    feed namespace, and it is shared by every vehicle a source publishes. The public
     per-vehicle identity is separate: `vehicle_id`/`vehicle_label` become the
     GTFS VehicleDescriptor id/label. A source that owns many concurrent vehicles
     under one credential (Amtrak) MUST set them so cafe-car does not collapse the
@@ -48,7 +48,7 @@ class VehicleUpdate:
     `current_stop_*`/`current_status` say where the vehicle is *along its trip*,
     which is what lets a consumer place it against the schedule rather than only
     on a map. Every GTFS-RT VehicleStopStatus names a stop, so the three are set
-    together or left None together — cafe-car rejects a status without a stop.
+    together or left None together, and cafe-car rejects a status without a stop.
     A source that cannot tell where the vehicle is leaves all three None, and
     the feed then reports nothing rather than guessing.
     """
@@ -79,7 +79,7 @@ class Source(ABC):
     async def startup(self, http: httpx.AsyncClient) -> None:  # noqa: B027
         """One-time async setup (e.g. download + index static GTFS).
 
-        Optional hook — sources with no async setup can leave it as the default
+        Optional hook: sources with no async setup can leave it as the default
         no-op, so it is deliberately concrete rather than abstract.
         """
 
