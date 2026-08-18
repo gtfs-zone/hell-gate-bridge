@@ -4,9 +4,9 @@ name: Build
 # Requires:
 #   Variables (Settings → Variables → Actions):
 #     REGISTRY_DOMAIN  - hostname of the container registry, e.g. git.kcfam.us
-#     REGISTRY_USER    - username to authenticate with the registry, e.g. maxtkc
+#     DEPLOY_USER      - username to authenticate with the registry, e.g. maxtkc
 #   Secrets (Settings → Secrets → Actions):
-#     REGISTRY_TOKEN   - access token with write:packages scope
+#     DEPLOY_TOKEN     - access token with write:package and write:repository scope
 
 on:
   push:
@@ -31,8 +31,8 @@ jobs:
 
       - name: Login to registry
         run: |
-          echo "${{ secrets.REGISTRY_TOKEN }}" | \
-            docker login ${{ vars.REGISTRY_DOMAIN }} -u ${{ vars.REGISTRY_USER }} --password-stdin
+          echo "${{ secrets.DEPLOY_TOKEN }}" | \
+            docker login ${{ vars.REGISTRY_DOMAIN }} -u ${{ vars.DEPLOY_USER }} --password-stdin
 
       - name: Build and push
         env:
