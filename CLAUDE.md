@@ -37,8 +37,9 @@ Amtrak uses `resolve()` (by train number), buswhere uses `resolve_by_route()`.
 
 Downstream/adjacent work lives in other repos (do not edit from here):
 - **cafe-car**: needs a `Feed` for Columbia County (`static_feed_url` = the CC
-  GitHub zip) and a `Driver` whose `username` == the buswhere `INGEST_VEHICLE_ID`,
-  so ingested positions surface in that feed.
+  GitHub zip) and a `Tracker` whose surrogate `id` == the buswhere
+  `INGEST_VEHICLE_ID`, so ingested positions surface in that feed. Get the id
+  from `scripts/provision_source.py`, which prints it.
 - **schedule-foamer**: loads that CC GTFS into cafe-car.
 - **music-student**: add a second compose service running this image with
   `SOURCE=buswhere` and its own `INGEST_VEHICLE_ID`.
@@ -52,7 +53,7 @@ Downstream/adjacent work lives in other repos (do not edit from here):
 | `HTTP_TIMEOUT` | httpx timeout seconds (default 20) |
 | `CAFE_CAR_INGEST_URL` | cafe-car ingest base URL; publishing no-ops if unset |
 | `INGEST_API_TOKEN` | Bearer token for the ingest API |
-| `INGEST_VEHICLE_ID` | `vehicle_id`; must equal a cafe-car `Driver.username` |
+| `INGEST_VEHICLE_ID` | `tracker_id`; must equal a cafe-car `Tracker.id` (the surrogate, not the `device_key`) |
 | `GTFS_URL` | GTFS zip URL (defaults per source) |
 | `GTFS_PATH` | GTFS cache path (dir or `.zip`) |
 | `ROUTE_FILTER` | amtrak-only: comma-separated RouteName allowlist |

@@ -38,12 +38,15 @@ class VehicleUpdate:
     trusting the device, so cafe-car never has to. `start_date` disambiguates
     concurrent instances of the same trip_id.
 
-    `tracker_id` is the secret cafe-car credential (Tracker.id) that selects the
-    feed namespace, and it is shared by every vehicle a source publishes. The public
-    per-vehicle identity is separate: `vehicle_id`/`vehicle_label` become the
-    GTFS VehicleDescriptor id/label. A source that owns many concurrent vehicles
-    under one credential (Amtrak) MUST set them so cafe-car does not collapse the
-    fleet onto the tracker nickname; a single-device source may leave them None.
+    `tracker_id` is a cafe-car `Tracker.id`, the surrogate that selects the feed
+    namespace, and it is shared by every vehicle a source publishes. It is not a
+    credential: `/ingest/*` is authenticated by the shared `INGEST_API_TOKEN`,
+    and the tracker's own secret (`device_key`) is Traccar's business, never
+    this repo's. The public per-vehicle identity is separate:
+    `vehicle_id`/`vehicle_label` become the GTFS VehicleDescriptor id/label. A
+    source that owns many concurrent vehicles under one tracker (Amtrak) MUST
+    set them so cafe-car does not collapse the fleet onto the tracker nickname;
+    a single-device source may leave them None.
 
     `current_stop_*`/`current_status` say where the vehicle is *along its trip*,
     which is what lets a consumer place it against the schedule rather than only
