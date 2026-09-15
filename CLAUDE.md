@@ -16,6 +16,22 @@ deploy one container per source.
   script's `--watch` parks until each dormant route goes live and captures it
   then, saving after every catch.
 
+`mapping.json` has three keys:
+
+- `routes`: slug -> `route_id`, or `{"route_id": ..., "trips": [...]}` when
+  several slugs share one route_id with overlapping windows (the Albany
+  commuter runs), which `resolve_by_route`'s `allowed_trips` then narrows.
+- `stops`: buswhere stop id -> GTFS stop id.
+- `unmapped`: buswhere stop ids reviewed and found to have no GTFS counterpart
+  at all (Greenport, Columbiaville). Listed so the source can stay quiet about
+  them and still warn about a stop nobody has looked at.
+
+A route's live snapshot lists buses running *other* routes too, and its
+top-level `stop_eta` is an aggregate across all of them. `BuswhereSource` yields
+one observation per device with ETAs taken from `other_routes_stop_eta`, then
+attributes each device to the route whose `current` position it is nearest to;
+a device another route claims is dropped from this one.
+
 ## Commands
 
 

@@ -63,8 +63,9 @@ BUSWHERE_BASE = "https://buswhere.com/columbiacountyny/routes"
 #
 # buswhere splits the Albany commuter into one slug per run, while the GTFS has a
 # single Albany-Commuter route with eight weekday trips (A_AM 06:15, C_AM 07:00,
-# B_PM 14:30, D_PM 16:00, each NB/SB). That's fine: resolve_by_route picks the
-# trip by route + scheduled window, so every run slug maps to the one route_id.
+# B_PM 14:30, D_PM 16:00, each NB/SB). route_id alone is not enough there: the
+# runs' windows overlap (B_PM_NB ends 16:20, D_PM_NB starts 16:00), so two slugs
+# would resolve to the same trip. ROUTE_TRIPS pins each slug to its own runs.
 # Note the inconsistent separator: AM runs double the underscore, PM runs don't.
 ROUTES: dict[str, str] = {
     "shopping_shuttle": "Shopping",
@@ -83,6 +84,29 @@ CANDIDATE_ROUTES: dict[str, str] = {
 }
 
 ALL_ROUTES: dict[str, str] = {**ROUTES, **CANDIDATE_ROUTES}
+
+# Slugs that need a trip allowlist because they share a route_id with a slug
+# whose scheduled window overlaps theirs. Written into mapping.json as
+# {"route_id": ..., "trips": [...]}; slugs absent here stay bare strings.
+ROUTE_TRIPS: dict[str, list[str]] = {
+    "hudson__albany_a__am": ["HUD_ALB_A_AM_NB", "HUD_ALB_A_AM_SB"],
+    "hudson__albany_c__am": ["HUD_ALB_C_AM_NB", "HUD_ALB_C_AM_SB"],
+    "hudson__albany_b_pm": ["HUD_ALB_B_PM_NB", "HUD_ALB_B_PM_SB"],
+    "hudson__albany_d_pm": ["HUD_ALB_D_PM_NB", "HUD_ALB_D_PM_SB"],
+}
+
+
+def _route_entry(slug: str) -> str | dict:
+    """A mapping.json routes value: bare route_id, or route_id + trip allowlist."""
+    route_id = ALL_ROUTES[slug]
+    trips = ROUTE_TRIPS.get(slug)
+    return {"route_id": route_id, "trips": trips} if trips else route_id
+
+
+def _route_id_of(entry: str | dict) -> str:
+    """The route_id from either mapping.json routes form."""
+    return entry if isinstance(entry, str) else entry["route_id"]
+
 
 MAPPING_PATH = (
     Path(__file__).resolve().parent.parent
@@ -260,12 +284,31 @@ def _fetch_route_stops(client: httpx.Client, slug: str) -> list[dict] | None:
 
 def _load_mapping() -> dict[str, dict]:
     """The committed mapping, or an empty one. Only confirmed routes are seeded."""
-    mapping: dict[str, dict] = {"routes": dict(ROUTES), "stops": {}}
+    mapping: dict[str, dict] = {
+        "routes": {slug: _route_entry(slug) for slug in ROUTES},
+        "stops": {},
+    }
     if MAPPING_PATH.exists():
         existing = json.loads(MAPPING_PATH.read_text())
         mapping["stops"] = existing.get("stops", {})
         mapping["routes"].update(existing.get("routes", {}))
     return mapping
+
+
+def _apply_no_match(mapping: dict[str, dict], review: dict[str, dict]) -> None:
+    """Publish reviewed "no match" stops so the runtime can stay quiet about them.
+
+    buswhere serves stops the Columbia County GTFS has no counterpart for at all
+    (Greenport, Columbiaville on the Albany run). Without this the source cannot
+    tell those from a stop nobody has looked at yet, and warns every cycle.
+    """
+    mapping["unmapped"] = sorted(
+        bid
+        for bid, r in review["resolved"].items()
+        # A later automatic match supersedes an earlier "no match" decision, so
+        # a stop that ended up mapped is not unmappable.
+        if r["decision"] == "no_match" and bid not in mapping["stops"]
+    )
 
 
 def _save_mapping(mapping: dict[str, dict]) -> None:
@@ -565,7 +608,7 @@ def _map_route(
 
     # A candidate slug that actually served stops is a real route: record it so
     # the runtime source starts polling it too.
-    mapping["routes"].setdefault(slug, ALL_ROUTES[slug])
+    mapping["routes"].setdefault(slug, _route_entry(slug))
     return matched
 
 
@@ -578,7 +621,8 @@ def _coverage_report(
     buswhere counterpart, restricted to routes we've actually captured."""
     mapped_gtfs_stops = set(mapping["stops"].values())
     gaps: dict[str, list[tuple[str, str]]] = {}
-    for route_id in sorted(set(mapping["routes"].values())):
+    route_ids = {_route_id_of(e) for e in mapping["routes"].values()}
+    for route_id in sorted(route_ids):
         scheduled = gtfs_route_stops.get(route_id, set())
         missing = scheduled - mapped_gtfs_stops
         if missing:
@@ -626,6 +670,7 @@ def _watch(
                     continue
                 pending.remove(slug)
                 _map_route(slug, stops, gtfs_stops, mapping, review, interactive=False)
+                _apply_no_match(mapping, review)
                 _save_mapping(mapping)
                 _save_review(review, REVIEW_PATH)
                 log.info(
@@ -767,6 +812,7 @@ def main() -> int:
                     review,
                     interactive=args.interactive,
                 )
+            _apply_no_match(mapping, review)
             _save_mapping(mapping)
             _save_review(review, args.review_file)
             log.info("%d stop matches this run", matched)

@@ -1,10 +1,28 @@
 {
   "routes": {
     "shopping_shuttle": "Shopping",
-    "hudson__albany_c__am": "Albany-Commuter",
-    "hudson__albany_b_pm": "Albany-Commuter",
+    "hudson__albany_c__am": {
+      "route_id": "Albany-Commuter",
+      "trips": [
+        "HUD_ALB_C_AM_NB",
+        "HUD_ALB_C_AM_SB"
+      ]
+    },
+    "hudson__albany_b_pm": {
+      "route_id": "Albany-Commuter",
+      "trips": [
+        "HUD_ALB_B_PM_NB",
+        "HUD_ALB_B_PM_SB"
+      ]
+    },
     "chatham": "Chatham-Hudson",
-    "hudson__albany_d_pm": "Albany-Commuter"
+    "hudson__albany_d_pm": {
+      "route_id": "Albany-Commuter",
+      "trips": [
+        "HUD_ALB_D_PM_NB",
+        "HUD_ALB_D_PM_SB"
+      ]
+    }
   },
   "stops": {
     "150765941": "STOP-71fb5365-5e0a-4f14-9d08-14e17e9f49dd",
@@ -61,11 +79,11 @@
     "150771640": "STOP-095817e8-46bf-48e4-bca2-77f095ed9012",
     "150771641": "STOP-0c5b445a-d205-4541-8ee0-e6d7a68fa15f",
     "150771642": "STOP-7cd6a5bf-7f43-4ce7-9347-23714294f9fb",
-    "150771643": "STOP-b57dfd9a-3fff-4039-97f6-a7282960a6de",
-    "150771644": "STOP-d894d2df-62e3-4b4a-9ac1-808af6ab308b",
+    "150771643": "STOP-a16e5f32-c6c8-4f1d-b41e-2961e5d20b18",
+    "150771644": "STOP-a16e5f32-c6c8-4f1d-b41e-2961e5d20b18",
     "150771646": "STOP-b6c98c61-17e9-463b-ac80-e47e571f2ca1",
     "150771648": "STOP-d777c53f-8e8b-4c0f-9cf2-9b841f4a2e6b",
-    "150771649": "STOP-9b2779a3-6fd5-492c-8304-cb4a5f3ffd7f",
+    "150771649": "STOP-ad8f5dff-5acc-4af6-b1dd-7d567ed433ab",
     "150771650": "STOP-97cb7d7f-7f85-41e1-9fd3-308e23da2d92",
     "150771651": "STOP-ecbbb988-3b30-4217-b055-bede2ff51c21",
     "150771652": "STOP-77379ee7-3eb0-4b2a-ab67-0ea55905fb20",
@@ -74,9 +92,10 @@
     "150771655": "STOP-97cb7d7f-7f85-41e1-9fd3-308e23da2d92",
     "150771656": "STOP-9b2779a3-6fd5-492c-8304-cb4a5f3ffd7f",
     "150771657": "STOP-d777c53f-8e8b-4c0f-9cf2-9b841f4a2e6b",
+    "150771658": "STOP-9d8c3c99-a233-4359-9cf7-110c24ea276a",
     "150771659": "STOP-b6c98c61-17e9-463b-ac80-e47e571f2ca1",
-    "150771661": "STOP-d894d2df-62e3-4b4a-9ac1-808af6ab308b",
-    "150771662": "STOP-b57dfd9a-3fff-4039-97f6-a7282960a6de",
+    "150771661": "STOP-a16e5f32-c6c8-4f1d-b41e-2961e5d20b18",
+    "150771662": "STOP-a16e5f32-c6c8-4f1d-b41e-2961e5d20b18",
     "150771663": "STOP-7cd6a5bf-7f43-4ce7-9347-23714294f9fb",
     "150771664": "STOP-0c5b445a-d205-4541-8ee0-e6d7a68fa15f",
     "150771665": "STOP-095817e8-46bf-48e4-bca2-77f095ed9012",
@@ -116,5 +135,13 @@
     "151232635": "STOP-9ff11336-fac8-4f16-8a24-1ecddcc1f6a3",
     "151233222": "STOP-56d8841a-2fb8-4fce-9a66-1c7bceb789d0",
     "151233842": "STOP-65eb9629-4021-4885-95d4-3d0c1c078fe2"
-  }
+  },
+  "unmapped": [
+    "150769337",
+    "150769339",
+    "150769353",
+    "150771645",
+    "150771647",
+    "150771660"
+  ]
 }

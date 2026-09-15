@@ -9,7 +9,7 @@ from hell_gate_bridge.config import Config
 from hell_gate_bridge.gtfs import GtfsResolver
 from hell_gate_bridge.sources.buswhere import source as buswhere_source_mod
 from hell_gate_bridge.sources.buswhere.client import BuswhereObservation, fetch_route
-from hell_gate_bridge.sources.buswhere.source import BuswhereSource
+from hell_gate_bridge.sources.buswhere.source import BuswhereSource, _RouteMapping
 
 TZ = ZoneInfo("America/New_York")
 
@@ -103,8 +103,9 @@ def _buswhere_source(tmp_path, monkeypatch):
     monkeypatch.setenv("INGEST_VEHICLE_ID", "ccbus")
     src = BuswhereSource(Config())
     src._resolver = _write(tmp_path, _LOOP_TRIP, _LOOP_TIMES)
-    src._routes = {"testslug": "R"}
+    src._routes = {"testslug": _RouteMapping("R")}
     src._stops = {"bwA": "A", "bwB": "B", "bwC": "C"}
+    src._unmappable = set()
     return src
 
 
@@ -143,9 +144,8 @@ def test_buswhere_build_loop_keeps_upcoming_only(tmp_path, monkeypatch):
 
 
 def test_buswhere_build_labels_from_device_name(tmp_path, monkeypatch):
-    # buswhere's device name has no uniqueness guarantee (seen echoed across
-    # two routes at once), so it's display-only: cafe-car derives the actual
-    # unique VehicleDescriptor.id, hence no vehicle_id here.
+    # The device name is display-only; device_id is what keeps two concurrent
+    # buses on one tracker apart.
     src = _buswhere_source(tmp_path, monkeypatch)
     now = datetime(2024, 1, 2, 8, 25, tzinfo=TZ)
     obs = BuswhereObservation(
@@ -154,11 +154,12 @@ def test_buswhere_build_labels_from_device_name(tmp_path, monkeypatch):
         timestamp=int(now.timestamp()),
         stop_eta={"bwC": 900},
         vehicle_name="C5",
+        device_id=54742,
     )
 
     v = src._build("testslug", obs, now)
     assert v is not None
-    assert v.vehicle_id is None
+    assert v.vehicle_id == "testslug:54742"
     assert v.vehicle_label == "C5"
 
     obs_unnamed = BuswhereObservation(
@@ -273,15 +274,15 @@ def test_fetch_route_tolerates_non_numeric_stop_eta():
             "150769335": "arriving",
         },
     }
-    obs = asyncio.run(fetch_route(_FakeHttp(payload), "hudson__albany_b_pm"))
-    assert obs is not None
-    assert obs.stop_eta == {"150769333": 120.0, "150769334": 300.0}
+    observations = asyncio.run(fetch_route(_FakeHttp(payload), "hudson__albany_b_pm"))
+    assert len(observations) == 1
+    assert observations[0].stop_eta == {"150769333": 120.0, "150769334": 300.0}
 
 
 def test_fetch_failure_on_one_route_does_not_abort_cycle(tmp_path, monkeypatch, caplog):
     # A route whose fetch raises must be skipped, not kill the whole poll cycle.
     src = _buswhere_source(tmp_path, monkeypatch)
-    src._routes = {"bad": "R", "good": "R"}
+    src._routes = {"bad": _RouteMapping("R"), "good": _RouteMapping("R")}
     src._slugs = ["bad", "good"]
     now = datetime(2024, 1, 2, 8, 25, tzinfo=TZ)
     good_obs = BuswhereObservation(
@@ -294,9 +295,185 @@ def test_fetch_failure_on_one_route_does_not_abort_cycle(tmp_path, monkeypatch, 
     async def fake_fetch_route(http, slug, base_url=None):
         if slug == "bad":
             raise ValueError("could not convert string to float: 'departed'")
-        return good_obs
+        return [good_obs]
 
     monkeypatch.setattr(buswhere_source_mod, "fetch_route", fake_fetch_route)
     updates = asyncio.run(src.fetch(None))
     assert [u.trip_id for u in updates] == ["LOOP"]
     assert "route bad failed" in caplog.text
+
+
+# A snapshot's `devices` list carries buses running other routes. These payloads
+# are the shape of the live 2026-09-15 shopping_shuttle/hudson__albany_b_pm pair:
+# C1 runs the Albany commuter but is echoed into the shuttle's snapshot, and
+# `current` tracks each route's own bus.
+_C1 = 55170
+_C12 = 54742
+
+
+def _shuttle_payload():
+    return {
+        "active": True,
+        "current": {"lat": 42.255656, "lon": -73.791474},
+        "devices": [
+            {
+                "device_id": _C1,
+                "name": " C1",
+                "position": {"lat": 42.677562, "lon": -73.810432},
+                "updated_at": 1700000000,
+            },
+            {
+                "device_id": _C12,
+                "name": "C12",
+                "position": {"lat": 42.255656, "lon": -73.791474},
+                "updated_at": 1700000000,
+            },
+        ],
+        # The flat dict is an aggregate over both buses: per stop it is roughly
+        # whichever bus is closer, so it belongs to neither.
+        "stop_eta": {"bwB": 41, "bwC": 132},
+        "other_routes_stop_eta": {
+            "bwB": [
+                {"eta": 41, "device_id": _C1},
+                {"eta": 6584, "device_id": _C12},
+            ],
+            "bwC": [
+                {"eta": 981, "device_id": _C1},
+                {"eta": 132, "device_id": _C12},
+            ],
+        },
+    }
+
+
+def test_fetch_route_returns_one_observation_per_device():
+    observations = asyncio.run(fetch_route(_FakeHttp(_shuttle_payload()), "shuttle"))
+    assert [o.device_id for o in observations] == [_C1, _C12]
+    # Per-device ETAs, not the blended aggregate.
+    assert observations[0].stop_eta == {"bwB": 41.0, "bwC": 981.0}
+    assert observations[1].stop_eta == {"bwB": 6584.0, "bwC": 132.0}
+    # The padded upstream name never reaches the VehicleDescriptor label.
+    assert [o.vehicle_name for o in observations] == ["C1", "C12"]
+    assert all(o.route_current == (42.255656, -73.791474) for o in observations)
+
+
+def test_fetch_route_single_device_uses_aggregate_stop_eta():
+    # With one bus the flat dict is unambiguous, and is the only source when the
+    # per-device breakdown is missing.
+    payload = {
+        "active": True,
+        "current": {"lat": 42.67, "lon": -73.81},
+        "devices": [
+            {
+                "device_id": _C1,
+                "name": " C1",
+                "position": {"lat": 42.677567, "lon": -73.81043},
+                "updated_at": 1700000000,
+            }
+        ],
+        "stop_eta": {"bwB": 300},
+    }
+    observations = asyncio.run(fetch_route(_FakeHttp(payload), "hudson__albany_b_pm"))
+    assert len(observations) == 1
+    assert observations[0].stop_eta == {"bwB": 300.0}
+
+
+def test_attribute_drops_devices_running_another_route():
+    from hell_gate_bridge.sources.buswhere.source import _attribute
+
+    shuttle_current = (42.255656, -73.791474)
+    albany_current = (42.677562, -73.810432)
+
+    def obs(device_id, lat, lon, current):
+        return BuswhereObservation(
+            lat=lat,
+            lon=lon,
+            timestamp=1700000000,
+            stop_eta={},
+            device_id=device_id,
+            route_current=current,
+        )
+
+    snapshots = {
+        "shuttle": [
+            obs(_C1, 42.677562, -73.810432, shuttle_current),
+            obs(_C12, *shuttle_current, shuttle_current),
+        ],
+        "albany": [obs(_C1, 42.677567, -73.81043, albany_current)],
+    }
+    owned = _attribute(snapshots)
+    # C1 is nearest to albany's `current`, so the shuttle's echo of it goes.
+    assert [o.device_id for o in owned["shuttle"]] == [_C12]
+    assert [o.device_id for o in owned["albany"]] == [_C1]
+
+
+def test_attribute_keeps_a_second_unclaimed_bus():
+    from hell_gate_bridge.sources.buswhere.source import _attribute
+
+    current = (42.25, -73.79)
+    snapshots = {
+        "shuttle": [
+            BuswhereObservation(
+                lat=42.25,
+                lon=-73.79,
+                timestamp=1,
+                stop_eta={},
+                device_id=1,
+                route_current=current,
+            ),
+            BuswhereObservation(
+                lat=42.30,
+                lon=-73.70,
+                timestamp=1,
+                stop_eta={},
+                device_id=2,
+                route_current=current,
+            ),
+        ]
+    }
+    # Device 2 is not the owner, but no other route claims it either.
+    assert [o.device_id for o in _attribute(snapshots)["shuttle"]] == [1, 2]
+
+
+def test_unmappable_stops_do_not_warn(tmp_path, monkeypatch, caplog):
+    src = _buswhere_source(tmp_path, monkeypatch)
+    src._unmappable = {"bwGreenport"}
+    now = datetime(2024, 1, 2, 8, 25, tzinfo=TZ)
+    unmapped: set[str] = set()
+    obs = BuswhereObservation(
+        lat=42.25,
+        lon=-73.79,
+        timestamp=int(now.timestamp()),
+        stop_eta={"bwC": 900, "bwGreenport": 300, "bwUnknown": 300},
+    )
+
+    src._build("testslug", obs, now, unmapped)
+    assert unmapped == {"bwUnknown"}
+
+
+def test_attribute_prefers_the_closer_claim():
+    # A bus that just switched runs is briefly nearest to both snapshots'
+    # `current`; the route it left stops updating, so the tighter match wins
+    # regardless of poll order.
+    from hell_gate_bridge.sources.buswhere.source import _attribute
+
+    bus = (42.251645, -73.789423)
+    stale = (42.256609, -73.79577)  # the route it left, a few fixes behind
+
+    def obs(current):
+        return BuswhereObservation(
+            lat=bus[0],
+            lon=bus[1],
+            timestamp=1,
+            stop_eta={},
+            device_id=_C12,
+            route_current=current,
+        )
+
+    # "left" is polled first here and last in the reversed case.
+    for snapshots in (
+        {"left": [obs(stale)], "joined": [obs(bus)]},
+        {"joined": [obs(bus)], "left": [obs(stale)]},
+    ):
+        owned = _attribute(snapshots)
+        assert [o.device_id for o in owned["joined"]] == [_C12]
+        assert owned["left"] == []

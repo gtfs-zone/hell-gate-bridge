@@ -100,3 +100,43 @@ def test_unknown_train_number_returns_none(tmp_path):
     resolver = _make_resolver(tmp_path)
     now = datetime(2024, 1, 2, 10, 0, tzinfo=TZ)
     assert resolver.resolve("999", now, origin=now) is None
+
+
+def test_resolve_by_route_honors_trip_allowlist(tmp_path):
+    # Several buswhere slugs share one GTFS route_id with overlapping windows;
+    # without an allowlist they all resolve to the same trip.
+    agency = (
+        "agency_id,agency_name,agency_url,agency_timezone\n"
+        "CCPT,CC,https://x,America/New_York\n"
+    )
+    calendar = (
+        "service_id,monday,tuesday,wednesday,thursday,friday,"
+        "saturday,sunday,start_date,end_date\nWK,1,1,1,1,1,0,0,20240101,20241231\n"
+    )
+    trips = (
+        "route_id,service_id,trip_id,trip_short_name,shape_id\n"
+        "R,WK,B_PM,b,S\nR,WK,D_PM,d,S\n"
+    )
+    stop_times = (
+        "trip_id,arrival_time,departure_time,stop_id,stop_sequence\n"
+        "B_PM,14:30:00,14:30:00,A,0\n"
+        "B_PM,16:20:00,16:20:00,B,1\n"
+        "D_PM,16:00:00,16:00:00,A,0\n"
+        "D_PM,17:05:00,17:05:00,B,1\n"
+    )
+    (tmp_path / "agency.txt").write_text(agency)
+    (tmp_path / "calendar.txt").write_text(calendar)
+    (tmp_path / "trips.txt").write_text(trips)
+    (tmp_path / "stop_times.txt").write_text(stop_times)
+    r = GtfsResolver(tmp_path)
+
+    tz = ZoneInfo("America/New_York")
+    overlap = datetime(2024, 1, 2, 16, 10, tzinfo=tz)
+    # Both windows contain 16:10, and the later start wins unfiltered.
+    assert r.resolve_by_route("R", overlap) == ("D_PM", "20240102")
+    assert r.resolve_by_route("R", overlap, {"B_PM", "B_PM_SB"}) == (
+        "B_PM",
+        "20240102",
+    )
+    # An allowlist that matches no in-window trip resolves to nothing.
+    assert r.resolve_by_route("R", overlap, {"A_AM"}) is None

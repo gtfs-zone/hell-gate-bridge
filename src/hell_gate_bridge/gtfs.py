@@ -258,7 +258,12 @@ class GtfsResolver:
             for seq, stop_id, arr in sched
         ]
 
-    def resolve_by_route(self, route_id: str, now: datetime) -> tuple[str, str] | None:
+    def resolve_by_route(
+        self,
+        route_id: str,
+        now: datetime,
+        allowed_trips: set[str] | None = None,
+    ) -> tuple[str, str] | None:
         """Resolve the trip on `route_id` whose scheduled window contains `now`.
 
         For providers that report a route but not a trip (buswhere): among trips
@@ -267,10 +272,18 @@ class GtfsResolver:
         back-to-back, so at most one is running; at a shared boundary second we
         prefer the just-starting trip (latest window_start). Returns
         (trip_id, start_date) or None when nothing is scheduled to be running.
+
+        `allowed_trips` narrows the candidates, for when several upstream routes
+        share one GTFS route_id and their windows overlap: without it they all
+        resolve to the same trip and collide downstream.
         """
         trip_ids = self._trips_by_route.get(route_id)
         if not trip_ids:
             return None
+        if allowed_trips is not None:
+            trip_ids = [t for t in trip_ids if t in allowed_trips]
+            if not trip_ids:
+                return None
 
         local_today = now.astimezone(self._tz).date()
         best: tuple[datetime, str, str] | None = None  # (window_start, trip, sdate)
