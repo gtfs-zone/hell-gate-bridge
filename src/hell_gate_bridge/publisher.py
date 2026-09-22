@@ -1,9 +1,14 @@
 """Shared, provider-agnostic publish layer.
 
 Takes resolved `VehicleUpdate`s (from any `Source`) and POSTs them to cafe-car's
-ingest seam: positions to `/ingest/position`, per-stop predictions to
-`/ingest/trip-update`. Speed is metres/second and timestamps are epoch seconds,
+ingest seam: positions to `/ingest/positions`, per-stop predictions to
+`/ingest/trip-updates`. Speed is metres/second and timestamps are epoch seconds,
 matching the `vehicle:*` contract cafe-car serves from.
+
+A cycle goes out in chunks rather than one request per vehicle: Amtrak is ~53
+trains every 15s, which was over a hundred round trips a cycle. cafe-car
+validates a batch as a whole, so a chunk is the blast radius of one malformed
+record.
 """
 
 from __future__ import annotations
@@ -21,13 +26,17 @@ if TYPE_CHECKING:
 log = logging.getLogger(__name__)
 
 
-def _position_body(config: Config, v: VehicleUpdate) -> dict[str, object]:
+# Positions are small and cafe-car writes them one at a time, so the chunk size
+# is about bounding what a single bad record costs, not about request size.
+CHUNK_SIZE = 25
+
+
+def _position_body(v: VehicleUpdate) -> dict[str, object]:
     body: dict[str, object] = {
         "tracker_id": v.tracker_id,
+        "vehicle_id": v.vehicle_id,
         "trip_id": v.trip_id,
     }
-    if v.vehicle_id is not None:
-        body["vehicle_id"] = v.vehicle_id
     if v.vehicle_label is not None:
         body["vehicle_label"] = v.vehicle_label
     if v.start_date is not None:
@@ -69,6 +78,45 @@ def _stop_time_update_body(u: StopTimeUpdate) -> dict[str, object]:
     return body
 
 
+def _trip_update_body(v: VehicleUpdate) -> dict[str, object]:
+    body: dict[str, object] = {
+        "trip_id": v.trip_id,
+        "tracker_id": v.tracker_id,
+        "vehicle_id": v.vehicle_id,
+        "timestamp": v.timestamp,
+        "stop_time_updates": [_stop_time_update_body(u) for u in v.stop_time_updates],
+    }
+    if v.vehicle_label is not None:
+        body["vehicle_label"] = v.vehicle_label
+    if v.start_date is not None:
+        body["start_date"] = v.start_date
+    return body
+
+
+async def _post_chunks(
+    http: httpx.AsyncClient,
+    url: str,
+    headers: dict[str, str],
+    field: str,
+    bodies: list[dict[str, object]],
+) -> int:
+    """POST `bodies` in chunks under one JSON key. Returns the count accepted.
+
+    A chunk cafe-car rejects is logged and skipped, and the rest of the cycle
+    still ships: one unresolvable record must not cost a whole poll.
+    """
+    sent = 0
+    for start in range(0, len(bodies), CHUNK_SIZE):
+        chunk = bodies[start : start + CHUNK_SIZE]
+        try:
+            resp = await http.post(url, json={field: chunk}, headers=headers)
+            resp.raise_for_status()
+            sent += len(chunk)
+        except httpx.HTTPError as exc:
+            log.error("%s POST failed for %d records: %r", field, len(chunk), exc)
+    return sent
+
+
 async def publish(
     config: Config, http: httpx.AsyncClient, updates: list[VehicleUpdate]
 ) -> tuple[int, int]:
@@ -78,46 +126,25 @@ async def publish(
         return 0, 0
 
     base = config.ingest_url.rstrip("/")
-    position_url = f"{base}/ingest/position"
-    trip_update_url = f"{base}/ingest/trip-update"
     headers = {"Authorization": f"Bearer {config.ingest_token}"}
 
-    positions = 0
-    trip_updates = 0
-    for v in updates:
-        try:
-            resp = await http.post(
-                position_url, json=_position_body(config, v), headers=headers
-            )
-            resp.raise_for_status()
-            positions += 1
-        except httpx.HTTPError as exc:
-            log.error("position POST failed for %s: %r", v.trip_id, exc)
-            continue
-
-        if not v.stop_time_updates:
-            continue
-        body = {
-            "trip_id": v.trip_id,
-            "tracker_id": v.tracker_id,
-            "timestamp": v.timestamp,
-            "stop_time_updates": [
-                _stop_time_update_body(u) for u in v.stop_time_updates
-            ],
-        }
-        if v.vehicle_id is not None:
-            body["vehicle_id"] = v.vehicle_id
-        if v.vehicle_label is not None:
-            body["vehicle_label"] = v.vehicle_label
-        if v.start_date is not None:
-            body["start_date"] = v.start_date
-        try:
-            resp = await http.post(trip_update_url, json=body, headers=headers)
-            resp.raise_for_status()
-            trip_updates += 1
-        except httpx.HTTPError as exc:
-            log.error("trip-update POST failed for %s: %r", v.trip_id, exc)
-
+    # The two are independent now that they are batched: a position chunk that
+    # fails no longer suppresses those vehicles' predictions, which are useful
+    # on their own and outlive a single fix anyway (300s TTL vs 60s).
+    positions = await _post_chunks(
+        http,
+        f"{base}/ingest/positions",
+        headers,
+        "positions",
+        [_position_body(v) for v in updates],
+    )
+    trip_updates = await _post_chunks(
+        http,
+        f"{base}/ingest/trip-updates",
+        headers,
+        "trip_updates",
+        [_trip_update_body(v) for v in updates if v.stop_time_updates],
+    )
     return positions, trip_updates
 
 
@@ -164,7 +191,7 @@ async def publish_alerts(
     base = config.ingest_url.rstrip("/")
     headers = {"Authorization": f"Bearer {config.ingest_token}"}
     body = {
-        "tracker_id": config.vehicle_id,
+        "tracker_id": config.tracker_id,
         "alerts": [_alert_body(a) for a in alerts],
     }
     try:

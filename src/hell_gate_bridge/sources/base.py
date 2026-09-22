@@ -42,11 +42,16 @@ class VehicleUpdate:
     namespace, and it is shared by every vehicle a source publishes. It is not a
     credential: `/ingest/*` is authenticated by the shared `INGEST_API_TOKEN`,
     and the tracker's own secret (`device_key`) is Traccar's business, never
-    this repo's. The public per-vehicle identity is separate:
-    `vehicle_id`/`vehicle_label` become the GTFS VehicleDescriptor id/label. A
-    source that owns many concurrent vehicles under one tracker (Amtrak) MUST
-    set them so cafe-car does not collapse the fleet onto the tracker nickname;
-    a single-device source may leave them None.
+    this repo's.
+
+    `vehicle_id` is the public per-vehicle identity, the GTFS VehicleDescriptor
+    id, and it is required: cafe-car keys its live records on
+    `vehicle:{tracker_id}:{vehicle_id}`, so a source that omits it collapses its
+    whole fleet onto one record, each fix overwriting the last. It must be unique
+    within the tracker and stable for as long as the vehicle is out. What counts
+    as "the vehicle" is the source's call: buswhere has a device id, Amtrak
+    publishes no equipment and identifies a run instead. `vehicle_label` is
+    display-only and may be None.
 
     `current_stop_*`/`current_status` say where the vehicle is *along its trip*,
     which is what lets a consumer place it against the schedule rather than only
@@ -57,12 +62,12 @@ class VehicleUpdate:
     """
 
     tracker_id: str
+    vehicle_id: str  # public VehicleDescriptor.id, and half the cafe-car key
     trip_id: str
     timestamp: int  # epoch seconds
     lat: float
     lon: float
     start_date: str | None = None  # YYYYMMDD
-    vehicle_id: str | None = None  # public VehicleDescriptor.id
     vehicle_label: str | None = None  # public VehicleDescriptor.label
     route_id: str | None = None
     speed_mps: float | None = None

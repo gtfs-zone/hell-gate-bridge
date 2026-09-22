@@ -188,11 +188,14 @@ class BuswhereSource(Source):
         next_stop = stop_time_updates[0] if stop_time_updates else None
 
         return VehicleUpdate(
-            tracker_id=self._config.vehicle_id,
+            tracker_id=self._config.tracker_id,
             # buswhere's device_id is stable within a snapshot, which is all
-            # cafe-car needs to keep concurrent buses on one tracker apart.
+            # cafe-car needs to keep concurrent buses on one tracker apart. An
+            # observation with no device falls back to the bare slug: `_attribute`
+            # leaves at most one unattributed bus per route, so the slug alone
+            # identifies it.
             vehicle_id=(
-                f"{slug}:{obs.device_id}" if obs.device_id is not None else None
+                f"{slug}:{obs.device_id}" if obs.device_id is not None else slug
             ),
             vehicle_label=obs.vehicle_name or slug,
             trip_id=trip_id,

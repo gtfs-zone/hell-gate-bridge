@@ -10,7 +10,7 @@ _COLUMBIA_GTFS = (
 class Config:
     def __init__(self) -> None:
         # Which upstream tracker this process runs. One source per process keeps
-        # the two isolated (separate GTFS, vehicle_id, token scope); deploy one
+        # the two isolated (separate GTFS, tracker, token scope); deploy one
         # container each.
         self.source: str = os.environ.get("SOURCE", "amtrak").lower()
         self.poll_interval: int = int(os.environ.get("POLL_INTERVAL", "15"))
@@ -33,11 +33,14 @@ class Config:
         # is authenticated by INGEST_API_TOKEN, and the tracker's own credential
         # (`device_key`) never comes near this process. It is a per-tracker id,
         # not a vehicle id: one tracker can carry many concurrent vehicles, each
-        # supplying its own public vehicle_id (see AmtrakSource). The env var
-        # keeps its historical name.
+        # supplying its own public vehicle_id (see AmtrakSource).
         self.ingest_url: str | None = os.environ.get("CAFE_CAR_INGEST_URL")
         self.ingest_token: str | None = os.environ.get("INGEST_API_TOKEN")
-        self.vehicle_id: str = os.environ.get("INGEST_VEHICLE_ID", "amtrakdriver")
+        # INGEST_VEHICLE_ID is the old name for the same value, kept working for
+        # one release so a deploy can set the new name on its own schedule.
+        self.tracker_id: str = os.environ.get("INGEST_TRACKER_ID") or os.environ.get(
+            "INGEST_VEHICLE_ID", "amtrakdriver"
+        )
         # GTFS default follows the source: Amtrak's national feed vs. the
         # Columbia County feed we control (not the one buswhere uses internally).
         default_gtfs = _COLUMBIA_GTFS if self.source == "buswhere" else _AMTRAK_GTFS

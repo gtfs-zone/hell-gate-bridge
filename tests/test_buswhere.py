@@ -100,7 +100,7 @@ _LOOP_TIMES = (
 
 def _buswhere_source(tmp_path, monkeypatch):
     monkeypatch.setenv("SOURCE", "buswhere")
-    monkeypatch.setenv("INGEST_VEHICLE_ID", "ccbus")
+    monkeypatch.setenv("INGEST_TRACKER_ID", "ccbus")
     src = BuswhereSource(Config())
     src._resolver = _write(tmp_path, _LOOP_TRIP, _LOOP_TIMES)
     src._routes = {"testslug": _RouteMapping("R")}
@@ -168,6 +168,9 @@ def test_buswhere_build_labels_from_device_name(tmp_path, monkeypatch):
     v2 = src._build("testslug", obs_unnamed, now)
     assert v2 is not None
     assert v2.vehicle_label == "testslug"
+    # No device: the bare slug, never None. cafe-car keys its live record on the
+    # vehicle_id, so a missing one would collapse the fleet onto one record.
+    assert v2.vehicle_id == "testslug"
 
 
 def test_buswhere_build_current_stop_is_next_visit(tmp_path, monkeypatch):

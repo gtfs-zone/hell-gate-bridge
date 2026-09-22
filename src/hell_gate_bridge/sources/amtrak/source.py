@@ -176,7 +176,7 @@ class AmtrakSource(Source):
             current = _current_stop(train, stop_seqs)
             updates.append(
                 VehicleUpdate(
-                    tracker_id=config.vehicle_id,
+                    tracker_id=config.tracker_id,
                     # train_num alone is not unique: a >24h daily train has
                     # several concurrent instances of one train_num live at once,
                     # exactly what start_date disambiguates. Pair them for a
