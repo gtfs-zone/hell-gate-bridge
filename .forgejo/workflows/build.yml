@@ -1,11 +1,10 @@
-
 name: Build
 
 # Requires:
-#   Variables (Settings → Variables → Actions):
+#   Variables (Settings -> Variables -> Actions):
 #     REGISTRY_DOMAIN  - hostname of the container registry, e.g. git.kcfam.us
 #     DEPLOY_USER      - username to authenticate with the registry, e.g. maxtkc
-#   Secrets (Settings → Secrets → Actions):
+#   Secrets (Settings -> Secrets -> Actions):
 #     DEPLOY_TOKEN     - access token with write:package and write:repository scope
 
 on:
@@ -21,13 +20,29 @@ jobs:
 
     steps:
       - name: Install dependencies
-        run: apk add --no-cache docker-cli docker-cli-buildx git nodejs
+        run: apk add --no-cache docker-cli docker-cli-buildx git nodejs uv
 
       - name: Checkout
         uses: actions/checkout@v6
         with:
-
           github-server-url: https://${{ vars.REGISTRY_DOMAIN }}
+
+      # uv fetches its own interpreter when the runner's python does not match
+      # requires-python.
+      - name: Install project
+        run: uv sync --frozen
+
+      - name: Lint
+        run: uv run ruff check .
+
+      # Not every repo has a test suite yet.
+      - name: Test
+        run: |
+          if [ -d tests ]; then
+            uv run pytest
+          else
+            echo "no tests/ directory, skipping"
+          fi
 
       - name: Login to registry
         run: |
@@ -46,5 +61,3 @@ jobs:
           fi
           docker build $TAGS .
           docker push --all-tags $IMAGE
-
-

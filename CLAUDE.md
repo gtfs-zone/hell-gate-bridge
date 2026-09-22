@@ -83,6 +83,7 @@ Downstream/adjacent work lives in other repos (do not edit from here):
 - Never include `Co-Authored-By: Claude ...` trailers in commit messages.
 - Cross-repo work is allowed: sibling gtfs.zone repos live under the same parent
   directory and may be read and edited when a change spans repos.
+- Module loggers are named `log`, never `logger`: `log = logging.getLogger(__name__)`
 
 <!-- Add project-specific rules and invariants here -->
 
