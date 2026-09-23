@@ -20,7 +20,7 @@ jobs:
 
     steps:
       - name: Install dependencies
-        run: apk add --no-cache docker-cli docker-cli-buildx git nodejs uv
+        run: apk add --no-cache docker-cli docker-cli-buildx git nodejs tzdata uv
 
       - name: Checkout
         uses: actions/checkout@v6
