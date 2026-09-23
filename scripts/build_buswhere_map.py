@@ -66,7 +66,9 @@ BUSWHERE_BASE = "https://buswhere.com/columbiacountyny/routes"
 # B_PM 14:30, D_PM 16:00, each NB/SB). route_id alone is not enough there: the
 # runs' windows overlap (B_PM_NB ends 16:20, D_PM_NB starts 16:00), so two slugs
 # would resolve to the same trip. ROUTE_TRIPS pins each slug to its own runs.
-# Note the inconsistent separator: AM runs double the underscore, PM runs don't.
+# The separator isn't consistent across runs: confirmed C_AM uses a double
+# underscore before "am", but confirmed A_AM uses a single one. Don't assume
+# a pattern from one run's spelling when guessing another's.
 ROUTES: dict[str, str] = {
     "shopping_shuttle": "Shopping",
     "hudson__albany_c__am": "Albany-Commuter",
@@ -79,7 +81,7 @@ ROUTES: dict[str, str] = {
 # first one that answers is promoted into mapping.json's routes automatically, so
 # a guess that's wrong just stays dormant forever and costs nothing.
 CANDIDATE_ROUTES: dict[str, str] = {
-    "hudson__albany_a__am": "Albany-Commuter",
+    "hudson__albany_a_am": "Albany-Commuter",
     "hudson__albany_d_pm": "Albany-Commuter",
 }
 
@@ -89,7 +91,7 @@ ALL_ROUTES: dict[str, str] = {**ROUTES, **CANDIDATE_ROUTES}
 # whose scheduled window overlaps theirs. Written into mapping.json as
 # {"route_id": ..., "trips": [...]}; slugs absent here stay bare strings.
 ROUTE_TRIPS: dict[str, list[str]] = {
-    "hudson__albany_a__am": ["HUD_ALB_A_AM_NB", "HUD_ALB_A_AM_SB"],
+    "hudson__albany_a_am": ["HUD_ALB_A_AM_NB", "HUD_ALB_A_AM_SB"],
     "hudson__albany_c__am": ["HUD_ALB_C_AM_NB", "HUD_ALB_C_AM_SB"],
     "hudson__albany_b_pm": ["HUD_ALB_B_PM_NB", "HUD_ALB_B_PM_SB"],
     "hudson__albany_d_pm": ["HUD_ALB_D_PM_NB", "HUD_ALB_D_PM_SB"],
