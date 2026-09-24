@@ -23,8 +23,13 @@ deploy one container per source.
   commuter runs), which `resolve_by_route`'s `allowed_trips` then narrows.
 - `stops`: buswhere stop id -> GTFS stop id.
 - `unmapped`: buswhere stop ids reviewed and found to have no GTFS counterpart
-  at all (Greenport, Columbiaville). Listed so the source can stay quiet about
-  them and still warn about a stop nobody has looked at.
+  at all (the northernmost "Greenport" point on each Albany run). Listed so the
+  source can stay quiet about them and still warn about a stop nobody has
+  looked at.
+- A mapped stop only produces a prediction if its GTFS stop is on the resolved
+  trip. The Albany trips have one Greenport and one Columbiaville per direction,
+  so buswhere's matching points map to those, even where buswhere's pin is far
+  from the GTFS one (Columbiaville is ~1.1 km off).
 
 A route's live snapshot lists buses running *other* routes too, and its
 top-level `stop_eta` is an aggregate across all of them. `BuswhereSource` yields

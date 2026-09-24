@@ -301,8 +301,9 @@ def _apply_no_match(mapping: dict[str, dict], review: dict[str, dict]) -> None:
     """Publish reviewed "no match" stops so the runtime can stay quiet about them.
 
     buswhere serves stops the Columbia County GTFS has no counterpart for at all
-    (Greenport, Columbiaville on the Albany run). Without this the source cannot
-    tell those from a stop nobody has looked at yet, and warns every cycle.
+    (the northernmost Greenport point on the Albany runs). Without this the
+    source cannot tell those from a stop nobody has looked at yet, and warns
+    every cycle.
     """
     mapping["unmapped"] = sorted(
         bid

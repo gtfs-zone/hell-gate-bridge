@@ -1,6 +1,54 @@
 {
   "pending": {},
   "resolved": {
+    "150765944": {
+      "decision": "map",
+      "stop_id": "STOP-7cd6a5bf-7f43-4ce7-9347-23714294f9fb",
+      "decided_at": "2026-09-25T00:00:00+00:00"
+    },
+    "150765945": {
+      "decision": "map",
+      "stop_id": "STOP-a16e5f32-c6c8-4f1d-b41e-2961e5d20b18",
+      "decided_at": "2026-09-25T00:00:00+00:00"
+    },
+    "150765946": {
+      "decision": "map",
+      "stop_id": "STOP-d894d2df-62e3-4b4a-9ac1-808af6ab308b",
+      "decided_at": "2026-09-25T00:00:00+00:00"
+    },
+    "150765947": {
+      "decision": "no_match",
+      "decided_at": "2026-09-25T00:00:00+00:00"
+    },
+    "150765949": {
+      "decision": "map",
+      "stop_id": "STOP-9d8c3c99-a233-4359-9cf7-110c24ea276a",
+      "decided_at": "2026-09-25T00:00:00+00:00"
+    },
+    "150765961": {
+      "decision": "map",
+      "stop_id": "STOP-9d8c3c99-a233-4359-9cf7-110c24ea276a",
+      "decided_at": "2026-09-25T00:00:00+00:00"
+    },
+    "150765963": {
+      "decision": "no_match",
+      "decided_at": "2026-09-25T00:00:00+00:00"
+    },
+    "150765964": {
+      "decision": "map",
+      "stop_id": "STOP-d894d2df-62e3-4b4a-9ac1-808af6ab308b",
+      "decided_at": "2026-09-25T00:00:00+00:00"
+    },
+    "150765965": {
+      "decision": "map",
+      "stop_id": "STOP-a16e5f32-c6c8-4f1d-b41e-2961e5d20b18",
+      "decided_at": "2026-09-25T00:00:00+00:00"
+    },
+    "150765966": {
+      "decision": "map",
+      "stop_id": "STOP-7cd6a5bf-7f43-4ce7-9347-23714294f9fb",
+      "decided_at": "2026-09-25T00:00:00+00:00"
+    },
     "150769334": {
       "decision": "no_match",
       "decided_at": "2026-08-03T20:44:34.124130+00:00"
@@ -20,8 +68,9 @@
       "decided_at": "2026-08-03T20:44:34.124130+00:00"
     },
     "150769339": {
-      "decision": "no_match",
-      "decided_at": "2026-08-03T20:44:34.124130+00:00"
+      "decision": "map",
+      "stop_id": "STOP-9d8c3c99-a233-4359-9cf7-110c24ea276a",
+      "decided_at": "2026-09-25T00:00:00+00:00"
     },
     "150769351": {
       "decision": "map",
@@ -66,8 +115,9 @@
       "decided_at": "2026-09-15T20:10:00+00:00"
     },
     "150771647": {
-      "decision": "no_match",
-      "decided_at": "2026-09-15T20:10:00+00:00"
+      "decision": "map",
+      "stop_id": "STOP-9d8c3c99-a233-4359-9cf7-110c24ea276a",
+      "decided_at": "2026-09-25T00:00:00+00:00"
     },
     "150771658": {
       "decision": "map",
